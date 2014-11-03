@@ -1002,7 +1002,8 @@ void TrafficManager::_Step( )
         }
         _net[subnet]->ReadInputs( );
     }
-  
+
+    // TODO: taijusti change here  
     if ( !_empty_network ) {
         _Inject();
     }

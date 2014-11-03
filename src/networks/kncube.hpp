@@ -50,6 +50,8 @@ public:
   KNCube( const Configuration &config, const string & name, bool mesh );
   static void RegisterRoutingFunctions();
 
+  void PrintNet(); 
+
   int GetN( ) const;
   int GetK( ) const;
 

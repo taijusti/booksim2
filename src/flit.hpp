@@ -46,9 +46,9 @@ public:
                   ANY_TYPE      = 4 };
   FlitType type;
 
-  int vc;
+  int vc; // virtual channel
 
-  int cl;
+  int cl; // class ID
 
   bool head;
   bool tail;

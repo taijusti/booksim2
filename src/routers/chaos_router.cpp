@@ -37,11 +37,11 @@
 
 ChaosRouter::ChaosRouter( const Configuration& config,
 		    Module *parent, const string & name, int id,
-		    int inputs, int outputs )
+		    int inputs, int outputs, int node_type)
   : Router( config,
 	    parent, name,
 	    id,
-	    inputs, outputs )
+	    inputs, outputs, node_type)
 {
   int i;
 

@@ -57,10 +57,12 @@ int const Router::STALL_CROSSBAR_CONFLICT = -6;
 
 Router::Router( const Configuration& config,
 		Module *parent, const string & name, int id,
-		int inputs, int outputs ) :
+		int inputs, int outputs, int node_type) :
 TimedModule( parent, name ), _id( id ), _inputs( inputs ), _outputs( outputs ),
    _partial_internal_cycles(0.0)
 {
+  this->node_type = node_type;
+
   _crossbar_delay   = ( config.GetInt( "st_prepare_delay" ) + 
 			config.GetInt( "st_final_delay" ) );
   _credit_delay     = config.GetInt( "credit_delay" );
@@ -128,16 +130,16 @@ bool Router::IsFaultyOutput( int c ) const
 /*Router constructor*/
 Router *Router::NewRouter( const Configuration& config,
 			   Module *parent, const string & name, int id,
-			   int inputs, int outputs )
+			   int inputs, int outputs, int node_type)
 {
   const string type = config.GetStr( "router" );
   Router *r = NULL;
   if ( type == "iq" ) {
-    r = new IQRouter( config, parent, name, id, inputs, outputs );
+    r = new IQRouter( config, parent, name, id, inputs, outputs, node_type);
   } else if ( type == "event" ) {
-    r = new EventRouter( config, parent, name, id, inputs, outputs );
+    r = new EventRouter( config, parent, name, id, inputs, outputs , node_type);
   } else if ( type == "chaos" ) {
-    r = new ChaosRouter( config, parent, name, id, inputs, outputs );
+    r = new ChaosRouter( config, parent, name, id, inputs, outputs , node_type);
   } else {
     cerr << "Unknown router type: " << type << endl;
   }
@@ -149,7 +151,12 @@ Router *Router::NewRouter( const Configuration& config,
   return r;
 }
 
-
+Router *Router::NewRouter( const Configuration& config,
+			   Module *parent, const string & name, int id,
+			   int inputs, int outputs)
+{
+  return NewRouter(config, parent, name, id, inputs, outputs, 1);
+}
 
 
 

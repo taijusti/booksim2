@@ -32,6 +32,8 @@
 #include <map>
 #include <set>
 #include <cassert>
+#include <iostream>
+#include <fstream>
 
 #include "module.hpp"
 #include "config_utils.hpp"

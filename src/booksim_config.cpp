@@ -69,6 +69,8 @@ BookSimConfig::BookSimConfig( )
   _int_map["fail_seed"]     = 0; //legacy
   AddStrField( "fail_seed", "" ); // workaround to allow special "time" value
 
+  AddStrField( "node_map", ""); // if no node map, just assume everything is a CPU
+
   //==== Single-node options ===============================
 
   _int_map["in_ports"]  = 5;

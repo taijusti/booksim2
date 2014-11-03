@@ -133,7 +133,7 @@ void FlatFlyOnChip::_BuildNet( const Configuration &config )
     router_name << "_" <<  node ;
 
     _routers[node] = Router::NewRouter( config, this, router_name.str( ), 
-					node, _r, _r );
+					node, _r, _r);
     _timed_modules.push_back(_routers[node]);
 
 

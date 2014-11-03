@@ -38,6 +38,10 @@
 #include "channel.hpp"
 #include "config_utils.hpp"
 
+#define CACHE_NODE (0)
+#define PROC_NODE  (1)
+#define EMPTY_NODE (2)
+
 typedef Channel<Credit> CreditChannel;
 
 class Router : public TimedModule {
@@ -65,6 +69,10 @@ protected:
 
   int _crossbar_delay;
   int _credit_delay;
+
+  // determines what kind of node this router is attached to
+  // (e.g. processor node, cache node, or empty node)
+  int node_type; 
   
   vector<FlitChannel *>   _input_channels;
   vector<CreditChannel *> _input_credits;
@@ -93,11 +101,14 @@ protected:
 public:
   Router( const Configuration& config,
 	  Module *parent, const string & name, int id,
-	  int inputs, int outputs );
+	  int inputs, int outputs, int node_type);
 
   static Router *NewRouter( const Configuration& config,
 			    Module *parent, const string & name, int id,
-			    int inputs, int outputs );
+			    int inputs, int outputs, int node_type);
+  static Router *NewRouter( const Configuration& config,
+			    Module *parent, const string & name, int id,
+			    int inputs, int outputs);
 
   virtual void AddInputChannel( FlitChannel *channel, CreditChannel *backchannel );
   virtual void AddOutputChannel( FlitChannel *channel, CreditChannel *backchannel );
@@ -109,6 +120,10 @@ public:
   inline FlitChannel * GetOutputChannel( int output ) const {
     assert((output >= 0) && (output < _outputs));
     return _output_channels[output];
+  }
+
+  inline int GetNodeType() {
+    return node_type;
   }
 
   virtual void ReadInputs( ) = 0;
