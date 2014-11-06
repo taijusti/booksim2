@@ -38,10 +38,6 @@
 #include "channel.hpp"
 #include "config_utils.hpp"
 
-#define CACHE_NODE (0)
-#define PROC_NODE  (1)
-#define EMPTY_NODE (2)
-
 typedef Channel<Credit> CreditChannel;
 
 class Router : public TimedModule {
@@ -53,6 +49,10 @@ protected:
   static int const STALL_BUFFER_FULL;
   static int const STALL_BUFFER_RESERVED;
   static int const STALL_CROSSBAR_CONFLICT;
+  static int const NODE_TYPE_CACHE_NODE;
+  static int const NODE_TYPE_PROC_NODE;
+  static int const NODE_TYPE_EMPTY_NODE;
+  static int const CACHE_LINE_SIZE;
 
   int _id;
   
@@ -73,6 +73,7 @@ protected:
   // determines what kind of node this router is attached to
   // (e.g. processor node, cache node, or empty node)
   int node_type; 
+  map<long, int> cache_lines;
   
   vector<FlitChannel *>   _input_channels;
   vector<CreditChannel *> _input_credits;
@@ -212,6 +213,22 @@ public:
 
   inline int NumInputs() const {return _inputs;}
   inline int NumOutputs() const {return _outputs;}
+
+  bool FindCacheLine(long address) {
+    assert(NODE_TYPE_CACHE_NODE == this->node_type);
+    return cache_lines.find(address) == cache_lines.end();
+  }
+
+  void AddCacheLine(long address) {
+    assert(NODE_TYPE_CACHE_NODE == this->node_type);
+    assert(cache_lines->size() < CACHE_LINE_SIZE);
+    cache_lines->insert(std::pair<long, int>(address, 0));
+  }
+
+  void RemoveCacheLine(long address) {
+    assert(NODE_TYPE_CACHE_NODE == this->node_type);
+    cache_line->erase(address);
+  }
 };
 
 #endif

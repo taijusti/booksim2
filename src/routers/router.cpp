@@ -54,6 +54,10 @@ int const Router::STALL_BUFFER_CONFLICT = -3;
 int const Router::STALL_BUFFER_FULL = -4;
 int const Router::STALL_BUFFER_RESERVED = -5;
 int const Router::STALL_CROSSBAR_CONFLICT = -6;
+int const Router::NODE_TYPE_CACHE_NODE = 0;
+int const Router::NODE_TYPE_PROC_NODE = 1;
+int const Router::NODE_TYPE_EMPTY_NODE = 2;
+int const Router::CACHE_LINE_SIZE = 1 * 1024 * 1024 / 4; // 1MB, word addressable
 
 Router::Router( const Configuration& config,
 		Module *parent, const string & name, int id,
