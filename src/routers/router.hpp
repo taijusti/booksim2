@@ -221,13 +221,13 @@ public:
 
   void AddCacheLine(long address) {
     assert(NODE_TYPE_CACHE_NODE == this->node_type);
-    assert(cache_lines->size() < CACHE_LINE_SIZE);
-    cache_lines->insert(std::pair<long, int>(address, 0));
+    assert(cache_lines.size() < CACHE_LINE_SIZE);
+    cache_lines.insert(std::pair<long, int>(address, 0));
   }
 
   void RemoveCacheLine(long address) {
     assert(NODE_TYPE_CACHE_NODE == this->node_type);
-    cache_line->erase(address);
+    cache_lines.erase(address);
   }
 };
 
