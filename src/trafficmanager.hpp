@@ -65,6 +65,9 @@ protected:
   vector<Network *> _net;
   vector<vector<Router *> > _router;
 
+  // outter map identifies CPU, inner map looks up address accessed in cycle
+  map<int, map<long, long> > _addr_trace;
+
   // ============ Traffic ============ 
 
   int    _classes;

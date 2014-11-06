@@ -222,6 +222,8 @@ BookSimConfig::BookSimConfig( )
   _int_map["write_reply_size"]   = 1;
   AddStrField("write_reply_size", ""); // workaraound to allow for vector specification
 
+  AddStrField("addr_trace_file", "");
+
   //==== Simulation parameters ==========================
 
   // types:

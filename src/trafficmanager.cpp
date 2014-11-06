@@ -231,6 +231,24 @@ TrafficManager::TrafficManager( const Configuration &config, const vector<Networ
         _injection_process[c] = InjectionProcess::New(injection_process[c], _nodes, _load[c], &config);
     }
 
+    // address trace traffic. assumed format: "[CPU],[cycle #];[address accessed]"
+    ifstream addr_trace_file;
+    addr_trace_file.open(config.GetStr("addr_trace_file").c_str());
+    string line;
+    char c_line [300]; // TODO: just assume that each line won't take up more than 300 characters
+    int cpu_id;
+    long cycle;
+    long address;
+    while (getline(addr_trace_file, line)) {
+        memcpy(c_line, line.c_str(), 300);
+        cpu_id = atoi(strtok(c_line, ",\n"));
+        cycle = atol(strtok(NULL, ",\n"));
+        address = atol(strtok(NULL, ",\n"));
+
+        _addr_trace[cpu_id][cycle] = address;
+    }
+    addr_trace_file.close();
+
     // ============ Injection VC states  ============ 
 
     _buf_states.resize(_nodes);
