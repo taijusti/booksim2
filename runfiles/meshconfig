@@ -61,7 +61,6 @@ sample_period  = 1000;
 
 sim_count          = 1;
 
-addr_trace_file = /home/taijusti/Documents/ece1749/booksim2/runfiles/test_addr_trace; 
 
 //topoogy
 

@@ -231,24 +231,6 @@ TrafficManager::TrafficManager( const Configuration &config, const vector<Networ
         _injection_process[c] = InjectionProcess::New(injection_process[c], _nodes, _load[c], &config);
     }
 
-    // address trace traffic. assumed format: "[CPU],[cycle #];[address accessed]"
-    ifstream addr_trace_file;
-    addr_trace_file.open(config.GetStr("addr_trace_file").c_str());
-    string line;
-    char c_line [300]; // TODO: just assume that each line won't take up more than 300 characters
-    int cpu_id;
-    long cycle;
-    long address;
-    while (getline(addr_trace_file, line)) {
-        memcpy(c_line, line.c_str(), 300);
-        cpu_id = atoi(strtok(c_line, ",\n"));
-        cycle = atol(strtok(NULL, ",\n"));
-        address = atol(strtok(NULL, ",\n"));
-
-        _addr_trace[cpu_id][cycle] = address;
-    }
-    addr_trace_file.close();
-
     // ============ Injection VC states  ============ 
 
     _buf_states.resize(_nodes);
@@ -768,6 +750,12 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
     }
 }
 
+// returns packet type to generate based on input source and
+// class.
+// 2 == write
+// 1 == read
+// 0 == reply
+// -1 == do not generate
 int TrafficManager::_IssuePacket( int source, int cl )
 {
     int result = 0;
@@ -783,7 +771,7 @@ int TrafficManager::_IssuePacket( int source, int cl )
             //produce a packet
             if(_injection_process[cl]->test(source)) {
 	
-                //coin toss to determine request type.
+                //coin toss to determine request type. 1 == read request, 2 == write request
                 result = (RandomFloat() < _write_fraction[cl]) ? 2 : 1;
 	
                 _requestsOutstanding[source]++;
@@ -808,15 +796,17 @@ void TrafficManager::_GeneratePacket( int source, int stype,
     int size = _GetNextPacketSize(cl); //input size 
     int pid = _cur_pid++;
     assert(_cur_pid);
+
+    // TODO: taijusti, do we just add a new traffic pattern?
     int packet_destination = _traffic_pattern[cl]->dest(source);
     bool record = false;
     bool watch = gWatchOut && (_packets_to_watch.count(pid) > 0);
     if(_use_read_write[cl]){
         if(stype > 0) {
-            if (stype == 1) {
+            if (stype == 1) { // this is a cointoss integer from _IssuePacket
                 packet_type = Flit::READ_REQUEST;
                 size = _read_request_size[cl];
-            } else if (stype == 2) {
+            } else if (stype == 2) { // this is a cointoss integer from _IssuePacket
                 packet_type = Flit::WRITE_REQUEST;
                 size = _write_request_size[cl];
             } else {
@@ -942,6 +932,10 @@ void TrafficManager::_Inject(){
         for ( int c = 0; c < _classes; ++c ) {
             // Potentially generate packets for any (input,class)
             // that is currently empty
+            //
+            // The way booksim was built is that it only lets one
+            // flit be injected at a time. In other words, the injection
+            // queue can only hold one flit at a time.
             if ( _partial_packets[input][c].empty() ) {
                 bool generated = false;
                 while( !generated && ( _qtime[input][c] <= _time ) ) {
@@ -980,7 +974,8 @@ void TrafficManager::_Step( )
     }
 
     vector<map<int, Flit *> > flits(_subnets);
-  
+ 
+    // eject flits from eject queues 
     for ( int subnet = 0; subnet < _subnets; ++subnet ) {
         for ( int n = 0; n < _nodes; ++n ) {
             Flit * const f = _net[subnet]->ReadFlit( n );
@@ -1026,6 +1021,7 @@ void TrafficManager::_Step( )
         _Inject();
     }
 
+    // logic to move flits along the router??? not sure
     for(int subnet = 0; subnet < _subnets; ++subnet) {
 
         for(int n = 0; n < _nodes; ++n) {
@@ -1055,13 +1051,13 @@ void TrafficManager::_Step( )
 
                 int const c = (last_class + i) % _classes;
 
-                list<Flit *> const & pp = _partial_packets[n][c];
+                list<Flit *> const & pp = _partial_packets[n][c]; // partial packets are the flit injection queues at each node. could hold head, body, or tail flits of a packet
 
                 if(pp.empty()) {
                     continue;
                 }
 
-                Flit * const cf = pp.front();
+                Flit * const cf = pp.front(); // cf == current flit
                 assert(cf);
                 assert(cf->cl == c);
 	
@@ -1073,11 +1069,12 @@ void TrafficManager::_Step( )
                     continue;
                 }
 
+                // if the flit in injection queue hasnt been routed... route it and put it into the first available VC
                 if(cf->head && cf->vc == -1) { // Find first available VC
 	  
                     OutputSet route_set;
-                    _rf(NULL, cf, -1, &route_set, true);
-                    set<OutputSet::sSetElement> const & os = route_set.GetSet();
+                    _rf(NULL, cf, -1, &route_set, true); // compute the route for the flit
+                    set<OutputSet::sSetElement> const & os = route_set.GetSet(); // retrieve the route
                     assert(os.size() == 1);
                     OutputSet::sSetElement const & se = *os.begin();
                     assert(se.output_port == -1);
@@ -1114,6 +1111,8 @@ void TrafficManager::_Step( )
                         assert(vc_end >= se.vc_start && vc_end <= se.vc_end);
                         assert(vc_start <= vc_end);
                     }
+
+                    // move the current flit (cf) to an available vc
                     if(cf->watch) {
                         *gWatchOut << GetSimTime() << " | " << FullName() << " | "
                                    << "Finding output VC for flit " << cf->id
@@ -1169,6 +1168,7 @@ void TrafficManager::_Step( )
                 }
             }
 
+            // if successful in moving current flit, deallocate the previous VC
             if(f) {
 
                 assert(f->subnetwork == subnet);
@@ -1254,6 +1254,7 @@ void TrafficManager::_Step( )
         }
     }
 
+    // for all VC's deallocated, send out credit
     for(int subnet = 0; subnet < _subnets; ++subnet) {
         for(int n = 0; n < _nodes; ++n) {
             map<int, Flit *>::const_iterator iter = flits[subnet].find(n);

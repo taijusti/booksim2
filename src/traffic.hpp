@@ -31,6 +31,9 @@
 #include <vector>
 #include <set>
 #include "config_utils.hpp"
+#include <iostream>
+#include <fstream>
+#include <map>
 
 using namespace std;
 
@@ -169,6 +172,21 @@ public:
   HotSpotTrafficPattern(int nodes, vector<int> hotspots, 
 			vector<int> rates = vector<int>());
   virtual int dest(int source);
+};
+
+class AddressTraceTrafficPattern : public TrafficPattern {
+private:
+  // address traces are potentially really big, so we load each instruction
+  // when needed, rather than loading everything into memory
+  ifstream addressTraceFile;    
+  int curCycle;
+  map<int,int> targetMap; // maps source to dest for a given cycle
+
+public:
+  AddressTraceTrafficPattern(int nodes, string fileName);
+  ~AddressTraceTrafficPattern();
+  virtual int dest(int source);
+  int dest(int source, int cycle);
 };
 
 #endif

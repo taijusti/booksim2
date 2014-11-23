@@ -26,9 +26,13 @@
 */
 
 #include <iostream>
+#include <fstream>
 #include <sstream>
 #include "random_utils.hpp"
 #include "traffic.hpp"
+#include <assert.h>
+#include <map>
+
 
 TrafficPattern::TrafficPattern(int nodes)
 : _nodes(nodes)
@@ -190,6 +194,8 @@ TrafficPattern * TrafficPattern::New(string const & pattern, int nodes,
       rates.resize(hotspots.size(), 1);
     }
     result = new HotSpotTrafficPattern(nodes, hotspots, rates);
+  } else if (pattern_name == "address_trace") {
+    result = new AddressTraceTrafficPattern(nodes, params[0]);
   } else {
     cout << "Error: Unknown traffic pattern: " << pattern << endl;
     exit(-1);
@@ -522,4 +528,59 @@ int HotSpotTrafficPattern::dest(int source)
   }
   assert(_rates.back() > pct);
   return _hotspots.back();
+}
+
+AddressTraceTrafficPattern::AddressTraceTrafficPattern(int nodes, string fileName)
+:TrafficPattern(nodes)
+{
+  addressTraceFile.open(fileName.c_str(), ios::in);
+}
+
+AddressTraceTrafficPattern::~AddressTraceTrafficPattern() {
+  addressTraceFile.close();
+}
+
+int AddressTraceTrafficPattern::dest(int source){
+  assert(0);
+}
+
+// Assumes address trace format of <cycle> <node ID> <address> <R/W>
+int AddressTraceTrafficPattern::dest(int source, int cycle) {
+  string line;
+  int parseCycle;
+  int parseAddress;
+  int parseSource;
+  int dest;
+  char c_line [300];
+
+  // check if the current cycle's worth of data is already loaded
+  if (cycle != curCycle) {
+    targetMap.clear();
+
+    // it hasn't been loaded, so load
+    while (getline(addressTraceFile, line)) {
+      memcpy(c_line, line.c_str(), 300);
+      parseCycle = atoi(strtok(c_line, " "));
+      parseSource = atoi(strtok(NULL, " "));
+      parseAddress = atoi(strtok(NULL, " "));
+      assert(parseCycle < curCycle);
+
+      // TODO: insert logic to map address -> node
+      dest = 0;
+
+      targetMap[parseSource] = dest; 
+    } 
+    addressTraceFile.seekg(-1, ios::cur);
+
+    curCycle = cycle;
+  }
+
+  // at this point, we know we have a list of every that is trasmitting
+  // in this cycle, if we can't find it, then they're not transmitting
+  if (targetMap.count(source) == 0) {
+    return -1;
+  }
+
+  // they are transmitting, return the destination
+  return targetMap[source];
 }

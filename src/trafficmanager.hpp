@@ -65,9 +65,6 @@ protected:
   vector<Network *> _net;
   vector<vector<Router *> > _router;
 
-  // outter map identifies CPU, inner map looks up address accessed in cycle
-  map<int, map<long, long> > _addr_trace;
-
   // ============ Traffic ============ 
 
   int    _classes;
@@ -116,6 +113,8 @@ protected:
 
   vector<vector<int> > _qtime;
   vector<vector<bool> > _qdrained;
+
+  // partial packets are the flit injection queues at each node. could hold head, body, or tail flits of a packet
   vector<vector<list<Flit *> > > _partial_packets;
 
   vector<map<int, Flit *> > _total_in_flight_flits;
