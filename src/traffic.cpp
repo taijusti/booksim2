@@ -66,7 +66,7 @@ TrafficPattern * TrafficPattern::New(string const & pattern, int nodes,
     }
   }
   vector<string> params = tokenize_str(param_str);
-  
+ 
   TrafficPattern * result = NULL;
   if(pattern_name == "bitcomp") {
     result = new BitCompTrafficPattern(nodes);
@@ -195,6 +195,7 @@ TrafficPattern * TrafficPattern::New(string const & pattern, int nodes,
     }
     result = new HotSpotTrafficPattern(nodes, hotspots, rates);
   } else if (pattern_name == "address_trace") {
+    cout << nodes << params[0];
     result = new AddressTraceTrafficPattern(nodes, params[0]);
   } else {
     cout << "Error: Unknown traffic pattern: " << pattern << endl;
@@ -542,45 +543,89 @@ AddressTraceTrafficPattern::~AddressTraceTrafficPattern() {
 
 int AddressTraceTrafficPattern::dest(int source){
   assert(0);
+  return -1;
 }
 
 // Assumes address trace format of <cycle> <node ID> <address> <R/W>
 int AddressTraceTrafficPattern::dest(int source, int cycle) {
-  string line;
-  int parseCycle;
-  int parseAddress;
-  int parseSource;
   int dest;
-  char c_line [300];
 
   // check if the current cycle's worth of data is already loaded
   if (cycle != curCycle) {
-    targetMap.clear();
+    LoadCycleData(cycle);
+  }
+
+  if (cycleInfo.count(source) == 0) {
+    return -1;
+  }
+
+  dest = 0;
+
+  // they are transmitting, return the destination
+  return dest;
+}
+
+void AddressTraceTrafficPattern::LoadCycleData(int cycle) {
+    string line;
+    char c_line [300];
+    int parseCycle;
+    int parseSource;
+    unsigned long parseAddress;
+    int dest;
+    int accessType;
+    char * parseAccessType;
+    int parseSize;
+
+    if (cycle == curCycle) {
+        return;
+    }
+
+    cycleInfo.clear();
 
     // it hasn't been loaded, so load
     while (getline(addressTraceFile, line)) {
       memcpy(c_line, line.c_str(), 300);
       parseCycle = atoi(strtok(c_line, " "));
+      parseAccessType = strtok(NULL, " ");
       parseSource = atoi(strtok(NULL, " "));
-      parseAddress = atoi(strtok(NULL, " "));
-      assert(parseCycle < curCycle);
+      parseSize = atoi(strtok(NULL, " "));
+      parseAddress = atol(strtok(NULL, " "));
 
-      // TODO: insert logic to map address -> node
-      dest = 0;
+      if (parseCycle > cycle) {
+        break;
+      }
 
-      targetMap[parseSource] = dest; 
+      if (parseAccessType == "Write") {
+        accessType = 2; // code for write from trafficmanager.cpp
+      } else {
+        accessType = 1; // code for read from trafficmanager.cpp
+      }
+
+      AddCycleInfo(accessType, parseSource, parseSize, parseAddress);
     } 
     addressTraceFile.seekg(-1, ios::cur);
 
     curCycle = cycle;
-  }
-
-  // at this point, we know we have a list of every that is trasmitting
-  // in this cycle, if we can't find it, then they're not transmitting
-  if (targetMap.count(source) == 0) {
-    return -1;
-  }
-
-  // they are transmitting, return the destination
-  return targetMap[source];
 }
+
+void AddressTraceTrafficPattern::AddCycleInfo(int accessType, int source, int size, long address) {
+    cycleInfo[source] = new CycleInfo(accessType, size, address);
+}
+
+int AddressTraceTrafficPattern::IssuePacket(int source, int cycle) {
+  // check if the current cycle's worth of data is already loaded
+  if (cycle != curCycle) {
+    LoadCycleData(cycle);
+  }
+
+  return GetAccessType(source);
+}
+
+int AddressTraceTrafficPattern::GetAccessType(int source){
+    if (cycleInfo.count(source) > 0) {
+        return cycleInfo[source]->accessType;
+    }
+
+    return -1;
+}
+

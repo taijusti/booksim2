@@ -759,7 +759,12 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
 int TrafficManager::_IssuePacket( int source, int cl )
 {
     int result = 0;
-    if(_use_read_write[cl]){ //use read and write
+
+    if (_traffic[cl] == "addr_trace") {
+        AddressTraceTrafficPattern * temp = (AddressTraceTrafficPattern*)_traffic_pattern[cl];
+        result = temp->IssuePacket(source, _time);
+
+    } else if(_use_read_write[cl]){ //use read and write
         //check queue for waiting replies.
         //check to make sure it is on time yet
         if (!_repliesPending[source].empty()) {
@@ -797,7 +802,6 @@ void TrafficManager::_GeneratePacket( int source, int stype,
     int pid = _cur_pid++;
     assert(_cur_pid);
 
-    // TODO: taijusti, do we just add a new traffic pattern?
     int packet_destination = _traffic_pattern[cl]->dest(source);
     bool record = false;
     bool watch = gWatchOut && (_packets_to_watch.count(pid) > 0);
@@ -932,10 +936,6 @@ void TrafficManager::_Inject(){
         for ( int c = 0; c < _classes; ++c ) {
             // Potentially generate packets for any (input,class)
             // that is currently empty
-            //
-            // The way booksim was built is that it only lets one
-            // flit be injected at a time. In other words, the injection
-            // queue can only hold one flit at a time.
             if ( _partial_packets[input][c].empty() ) {
                 bool generated = false;
                 while( !generated && ( _qtime[input][c] <= _time ) ) {
@@ -1016,7 +1016,6 @@ void TrafficManager::_Step( )
         _net[subnet]->ReadInputs( );
     }
 
-    // TODO: taijusti change here  
     if ( !_empty_network ) {
         _Inject();
     }

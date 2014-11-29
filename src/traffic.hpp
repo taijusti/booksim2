@@ -176,17 +176,34 @@ public:
 
 class AddressTraceTrafficPattern : public TrafficPattern {
 private:
+  class CycleInfo {
+    public:
+      int accessType;
+      int size;
+      long address;
+
+      CycleInfo(int accessType = 0, int size = 0, long address = 0) {
+        this->accessType = accessType;
+        this->size = size;
+        this->address = address;
+      }
+  };
+
   // address traces are potentially really big, so we load each instruction
   // when needed, rather than loading everything into memory
   ifstream addressTraceFile;    
   int curCycle;
-  map<int,int> targetMap; // maps source to dest for a given cycle
+  map<int, CycleInfo *> cycleInfo; // tracks which memory accesses are happening in curCycle
 
 public:
   AddressTraceTrafficPattern(int nodes, string fileName);
   ~AddressTraceTrafficPattern();
   virtual int dest(int source);
   int dest(int source, int cycle);
+  void LoadCycleData(int cycle);
+  void AddCycleInfo(int accessType, int source, int size, long address);
+  int GetAccessType(int source);
+  int IssuePacket(int source, int cycle);
 };
 
 #endif

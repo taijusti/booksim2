@@ -29,9 +29,10 @@ YACC   = bison -y
 DEFINE = 
 INCPATH = -I. -Iarbiters -Iallocators -Irouters -Inetworks -Ipower
 CPPFLAGS += -Wall $(INCPATH) $(DEFINE)
-CPPFLAGS += -O3
+#CPPFLAGS += -O3
 CPPFLAGS += -g
-LFLAGS +=
+CPPFLAGS += -fPIC
+LFLAGS += -fPIC
 
 PROG := booksim
 

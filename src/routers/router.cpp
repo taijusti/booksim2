@@ -61,7 +61,7 @@ int const Router::CACHE_LINE_SIZE = 1 * 1024 * 1024 / 4; // 1MB, word addressabl
 
 Router::Router( const Configuration& config,
 		Module *parent, const string & name, int id,
-		int inputs, int outputs, int node_type) :
+		int inputs, int outputs, int node_type = 1) :
 TimedModule( parent, name ), _id( id ), _inputs( inputs ), _outputs( outputs ),
    _partial_internal_cycles(0.0)
 {
@@ -157,10 +157,6 @@ Router *Router::NewRouter( const Configuration& config,
 
 Router *Router::NewRouter( const Configuration& config,
 			   Module *parent, const string & name, int id,
-			   int inputs, int outputs)
-{
-  return NewRouter(config, parent, name, id, inputs, outputs, 1);
+			   int inputs, int outputs) {
+    return NewRouter(config, parent, name, id, inputs, outputs, 1);
 }
-
-
-

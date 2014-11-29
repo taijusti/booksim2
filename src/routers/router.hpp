@@ -73,7 +73,12 @@ protected:
   // determines what kind of node this router is attached to
   // (e.g. processor node, cache node, or empty node)
   int node_type; 
+
+  // which cache lines are currently held inside this bank
   map<long, int> cache_lines;
+
+  // which addresses this cache bank should handle
+  vector<std::pair<long, long> > address_ranges; 
   
   vector<FlitChannel *>   _input_channels;
   vector<CreditChannel *> _input_credits;
@@ -107,6 +112,7 @@ public:
   static Router *NewRouter( const Configuration& config,
 			    Module *parent, const string & name, int id,
 			    int inputs, int outputs, int node_type);
+
   static Router *NewRouter( const Configuration& config,
 			    Module *parent, const string & name, int id,
 			    int inputs, int outputs);
@@ -228,6 +234,21 @@ public:
   void RemoveCacheLine(long address) {
     assert(NODE_TYPE_CACHE_NODE == this->node_type);
     cache_lines.erase(address);
+  }
+
+  // check if this cache bank handles the passed in address
+  bool HandlesAddress(long address) {
+    assert(NODE_TYPE_CACHE_NODE == this->node_type);
+
+    for (int i = 0; i < address_ranges.size(); i++) {
+        // assumes addresses 
+        if (address_ranges[i].first <= address
+            && address <= address_ranges[i].second) {
+            return true;
+        }
+    }
+
+    return false;
   }
 };
 

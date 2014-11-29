@@ -31,6 +31,8 @@
  *
  */
 
+#include <iostream>
+#include <fstream>
 #include "booksim.hpp"
 #include <cassert>
 #include <vector>
@@ -39,7 +41,6 @@
 #include "random_utils.hpp"
 #include "misc_utils.hpp"
  //#include "iq_router.hpp"
-
 
 KNCube::KNCube( const Configuration &config, const string & name, bool mesh ) :
 Network( config, name )
@@ -93,17 +94,49 @@ void KNCube::_BuildNet( const Configuration &config )
 
   int right_output;
   int left_output;
+  map<int, vector<int> > node_config;
+  bool isAddrTrace = false;
 
-  ostringstream router_name;
+  ifstream node_map_file ( config.GetStr("node_map").c_str());
 
-  // get the 1D array which represents which nodes are present,
-  // which nodes are processors, and which nodes are caches
-  vector<int> node_map = config.GetIntArray("node_map");
-  if (node_map.size() != 0) {
-    assert(node_map.size() == _size);
+  // parse in the node map and address map
+  if (node_map_file != "") {
+    string line;
+    char c_line [100];
+    int node = 0;
+    int type = 0;
+    unsigned long begin_addr = 0;
+    unsigned long end_addr = 0;
+    char * begin_addr_str;
+    char * end_addr_str;
+
+    assert(node_map_file.is_open());
+    isAddrTrace = true;
+
+    while (getline(node_map_file, line)) {
+      memcpy(c_line, line.c_str(), 300);
+      node = atoi(strtok(c_line, " "));
+      type = atoi(strtok(NULL, " "));
+      node_config[node].push_back(type);
+
+      begin_addr_str = strtok(NULL, " ");
+      end_addr_str = strtok(NULL, " ");
+      while (begin_addr_str != NULL) {
+          begin_addr = atol(begin_addr_str);
+          end_addr = atol(end_addr_str);
+          node_config[node].push_back(begin_addr);
+          node_config[node].push_back(end_addr);
+          begin_addr_str = strtok(NULL, " ");  
+          end_addr_str = strtok(NULL, " ");  
+      }
+    }
+
+    node_map_file.close();
+    assert(_size == node_config.size());
   }
 
   //latency type, noc or conventional network
+  ostringstream router_name;
   bool use_noc_latency;
   use_noc_latency = (config.GetInt("use_noc_latency")==1);
   
@@ -117,13 +150,13 @@ void KNCube::_BuildNet( const Configuration &config )
       }
     }
 
-    if (node_map.size() > 0) {
+    if (node_config.size() > 0) {
         _routers[node] = Router::NewRouter( config, this, router_name.str( ), 
-                    node, 2*_n + 1, 2*_n + 1, node_map[node]);
+                    node, 2*_n + 1, 2*_n + 1, node_config[node][0]);
     }
     else {
         _routers[node] = Router::NewRouter( config, this, router_name.str( ), 
-                    node, 2*_n + 1, 2*_n + 1, 1);
+                    node, 2*_n + 1, 2*_n + 1);
     }
     _timed_modules.push_back(_routers[node]);
 
