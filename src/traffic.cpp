@@ -195,7 +195,6 @@ TrafficPattern * TrafficPattern::New(string const & pattern, int nodes,
     }
     result = new HotSpotTrafficPattern(nodes, hotspots, rates);
   } else if (pattern_name == "address_trace") {
-    cout << nodes << params[0];
     result = new AddressTraceTrafficPattern(nodes, params[0]);
   } else {
     cout << "Error: Unknown traffic pattern: " << pattern << endl;
@@ -555,8 +554,9 @@ int AddressTraceTrafficPattern::dest(int source, int cycle) {
     LoadCycleData(cycle);
   }
 
+  // check if the node should be trasmitting this cycle
   if (cycleInfo.count(source) == 0) {
-    return -1;
+    assert(0);
   }
 
   dest = 0;
@@ -626,6 +626,6 @@ int AddressTraceTrafficPattern::GetAccessType(int source){
         return cycleInfo[source]->accessType;
     }
 
-    return -1;
+    return 0;
 }
 

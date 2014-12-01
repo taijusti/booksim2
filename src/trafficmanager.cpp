@@ -760,11 +760,13 @@ int TrafficManager::_IssuePacket( int source, int cl )
 {
     int result = 0;
 
-    if (_traffic[cl] == "addr_trace") {
-        AddressTraceTrafficPattern * temp = (AddressTraceTrafficPattern*)_traffic_pattern[cl];
-        result = temp->IssuePacket(source, _time);
+    // address trace mode must be used in R/W mode
+    // since address trace traffic have both read and write
+    if (_traffic[cl].find( "address_trace") != std::string::npos) {
+        assert(_use_read_write[cl]);
+    }
 
-    } else if(_use_read_write[cl]){ //use read and write
+    if(_use_read_write[cl]){ //use read and write
         //check queue for waiting replies.
         //check to make sure it is on time yet
         if (!_repliesPending[source].empty()) {
@@ -772,15 +774,21 @@ int TrafficManager::_IssuePacket( int source, int cl )
                 result = -1;
             }
         } else {
-      
+   
             //produce a packet
-            if(_injection_process[cl]->test(source)) {
+            if (_traffic[cl].find("address_trace") != std::string::npos) {
+                AddressTraceTrafficPattern * temp
+                    = (AddressTraceTrafficPattern*)_traffic_pattern[cl];
+                result = temp->IssuePacket(source, _time);
+
+            } else if(_injection_process[cl]->test(source)) {
 	
-                //coin toss to determine request type. 1 == read request, 2 == write request
+                //coin toss to determine request type.
+                //1 == read request, 2 == write request
                 result = (RandomFloat() < _write_fraction[cl]) ? 2 : 1;
-	
-                _requestsOutstanding[source]++;
             }
+
+            _requestsOutstanding[source]++;
         }
     } else { //normal mode
         result = _injection_process[cl]->test(source) ? 1 : 0;
@@ -802,35 +810,63 @@ void TrafficManager::_GeneratePacket( int source, int stype,
     int pid = _cur_pid++;
     assert(_cur_pid);
 
-    int packet_destination = _traffic_pattern[cl]->dest(source);
+    int packet_destination; 
     bool record = false;
     bool watch = gWatchOut && (_packets_to_watch.count(pid) > 0);
+
+    // address trace mode is different. the call to dest needs to know
+    // the current cycle in addition to the source
+    if (_traffic[cl].find("address_trace") != std::string::npos) {
+        AddressTraceTrafficPattern * temp
+            = (AddressTraceTrafficPattern*)_traffic_pattern[cl];
+        packet_destination = temp->dest(source, time);
+        assert(_use_read_write[cl]); // address trace should only be used in R/W mode
+    } else {
+        packet_destination = _traffic_pattern[cl]->dest(source);
+    }
+
+    // figure out what kind of packet it is going to be
     if(_use_read_write[cl]){
+
+        // check if it is a regular packet (read or write requet)
         if(stype > 0) {
-            if (stype == 1) { // this is a cointoss integer from _IssuePacket
+           
+            // this is a cointoss integer from _IssuePacket
+            if (stype == 1) { 
                 packet_type = Flit::READ_REQUEST;
                 size = _read_request_size[cl];
-            } else if (stype == 2) { // this is a cointoss integer from _IssuePacket
+
+            // this is a cointoss integer from _IssuePacket
+            } else if (stype == 2) {
                 packet_type = Flit::WRITE_REQUEST;
                 size = _write_request_size[cl];
+
             } else {
                 ostringstream err;
                 err << "Invalid packet type: " << packet_type;
                 Error( err.str( ) );
             }
+
+        // at this point, we know the packet is a reply
         } else {
             PacketReplyInfo* rinfo = _repliesPending[source].front();
-            if (rinfo->type == Flit::READ_REQUEST) {//read reply
+        
+            //read reply
+            if (rinfo->type == Flit::READ_REQUEST) {
                 size = _read_reply_size[cl];
                 packet_type = Flit::READ_REPLY;
-            } else if(rinfo->type == Flit::WRITE_REQUEST) {  //write reply
+
+            //write reply
+            } else if(rinfo->type == Flit::WRITE_REQUEST) { 
                 size = _write_reply_size[cl];
                 packet_type = Flit::WRITE_REPLY;
+
             } else {
                 ostringstream err;
                 err << "Invalid packet type: " << rinfo->type;
                 Error( err.str( ) );
             }
+
             packet_destination = rinfo->source;
             time = rinfo->time;
             record = rinfo->record;
@@ -862,7 +898,8 @@ void TrafficManager::_GeneratePacket( int source, int stype,
                    << " at time " << time
                    << "." << endl;
     }
-  
+ 
+    // inject the packet, flit by flit 
     for ( int i = 0; i < size; ++i ) {
         Flit * f  = Flit::New();
         f->id     = _cur_id++;

@@ -76,7 +76,7 @@ routing_function = dor;
 
 packet_size = 1;
 
-use_read_write = 0;
+use_read_write = 1;
 
 traffic       = address_trace(test_addr_trace);
 

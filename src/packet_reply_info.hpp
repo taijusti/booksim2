@@ -36,10 +36,10 @@
 class PacketReplyInfo {
 
 public:
-  int source;
-  int time;
+  int source; // the node that made the original request
+  int time; // the arrival time of the request
   bool record;
-  Flit::FlitType type;
+  Flit::FlitType type; // the type of request made
 
   static PacketReplyInfo* New();
   void Free();
