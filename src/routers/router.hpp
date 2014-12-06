@@ -238,7 +238,9 @@ public:
 
   // check if this cache bank handles the passed in address
   bool HandlesAddress(long address) {
-    assert(NODE_TYPE_CACHE_NODE == this->node_type);
+    if (this->node_type != NODE_TYPE_CACHE_NODE) {
+        return false;
+    }
 
     for (int i = 0; i < address_ranges.size(); i++) {
         // assumes addresses 

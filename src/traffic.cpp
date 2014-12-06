@@ -32,7 +32,8 @@
 #include "traffic.hpp"
 #include <assert.h>
 #include <map>
-
+#include <vector>
+#include "router.hpp"
 
 TrafficPattern::TrafficPattern(int nodes)
 : _nodes(nodes)
@@ -530,39 +531,55 @@ int HotSpotTrafficPattern::dest(int source)
   return _hotspots.back();
 }
 
-AddressTraceTrafficPattern::AddressTraceTrafficPattern(int nodes, string fileName)
+AddressTraceTrafficPattern::AddressTraceTrafficPattern(int nodes, string & fileName)
 :TrafficPattern(nodes)
 {
   addressTraceFile.open(fileName.c_str(), ios::in);
+  assert(addressTraceFile.is_open()); // if this assert fails, file is unopen. file path likely wrong
+  curCycle = -1;
 }
 
 AddressTraceTrafficPattern::~AddressTraceTrafficPattern() {
   addressTraceFile.close();
 }
 
-int AddressTraceTrafficPattern::dest(int source){
-  assert(0);
-  return -1;
-}
-
 // Assumes address trace format of <cycle> <node ID> <address> <R/W>
-int AddressTraceTrafficPattern::dest(int source, int cycle) {
+// NOTE: this function actually dequeues one of the requests
+int AddressTraceTrafficPattern::dest(int source) {
   int dest;
 
+  // push the head of the queue
+  dest = sendQueues[source].front()->dest;
+  sendQueues[source].pop_front();
+  cout<<"sending flit to " << dest;
+  return dest;
+}
+
+// NOTE: this function enqueues address requests
+int AddressTraceTrafficPattern::IssuePacket(int source, int cycle, vector<Router *> routers) {
   // check if the current cycle's worth of data is already loaded
   if (cycle != curCycle) {
     LoadCycleData(cycle);
   }
 
-  // check if the node should be trasmitting this cycle
   if (cycleInfo.count(source) == 0) {
-    assert(0);
+    return 0;
   }
 
-  dest = 0;
+  // for now, implement multicast. query all cache banks
+  // responsible for the address
+  int accessType = GetAccessType(source);
+  for (int i = 0; i < routers.size(); i++) {
+    if (routers[i]->HandlesAddress(cycleInfo[source]->address)){
+        cout << "enqueuing flit: {accessType:" << accessType << " node:" << i;
+        sendQueues[source].push_back(new Flit(accessType, i));
+    } 
+  }
 
-  // they are transmitting, return the destination
-  return dest;
+  assert(sendQueues[source].front() != NULL);
+  accessType = sendQueues[source].front()->accessType;
+  // do not pop front of sendQueues, that is the job of dest
+  return accessType;
 }
 
 void AddressTraceTrafficPattern::LoadCycleData(int cycle) {
@@ -610,15 +627,6 @@ void AddressTraceTrafficPattern::LoadCycleData(int cycle) {
 
 void AddressTraceTrafficPattern::AddCycleInfo(int accessType, int source, int size, long address) {
     cycleInfo[source] = new CycleInfo(accessType, size, address);
-}
-
-int AddressTraceTrafficPattern::IssuePacket(int source, int cycle) {
-  // check if the current cycle's worth of data is already loaded
-  if (cycle != curCycle) {
-    LoadCycleData(cycle);
-  }
-
-  return GetAccessType(source);
 }
 
 int AddressTraceTrafficPattern::GetAccessType(int source){

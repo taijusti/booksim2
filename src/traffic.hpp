@@ -34,6 +34,8 @@
 #include <iostream>
 #include <fstream>
 #include <map>
+#include <list>
+#include "router.hpp"
 
 using namespace std;
 
@@ -176,6 +178,8 @@ public:
 
 class AddressTraceTrafficPattern : public TrafficPattern {
 private:
+
+  // internal classes
   class CycleInfo {
     public:
       int accessType;
@@ -189,21 +193,32 @@ private:
       }
   };
 
+  class Flit {
+    public:
+      int accessType;
+      int dest;
+
+      Flit(int accessType = 0, int dest = 0) {
+        this->accessType = accessType;
+        this->dest = dest;
+      }
+  };
+
   // address traces are potentially really big, so we load each instruction
   // when needed, rather than loading everything into memory
   ifstream addressTraceFile;    
   int curCycle;
   map<int, CycleInfo *> cycleInfo; // tracks which memory accesses are happening in curCycle
+  map<int, list<Flit *> > sendQueues; // a queue of flits we need to send out. useful for multicasting /smart NUCA query
 
 public:
-  AddressTraceTrafficPattern(int nodes, string fileName);
+  AddressTraceTrafficPattern(int nodes, string  & fileName);
   ~AddressTraceTrafficPattern();
   virtual int dest(int source);
-  int dest(int source, int cycle);
   void LoadCycleData(int cycle);
   void AddCycleInfo(int accessType, int source, int size, long address);
   int GetAccessType(int source);
-  int IssuePacket(int source, int cycle);
+  int IssuePacket(int source, int cycle, vector<Router *>);
 };
 
 #endif

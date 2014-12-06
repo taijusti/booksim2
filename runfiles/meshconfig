@@ -78,7 +78,7 @@ packet_size = 1;
 
 use_read_write = 1;
 
-traffic       = address_trace(test_addr_trace);
+traffic       = address_trace(../runfiles/test_addr_trace);
 
 injection_rate = 0.2;
 

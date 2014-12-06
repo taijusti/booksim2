@@ -767,6 +767,15 @@ int TrafficManager::_IssuePacket( int source, int cl )
     }
 
     if(_use_read_write[cl]){ //use read and write
+        // if it is an address trace traffic pattern
+        // we need to enqueue any requests that are happening
+        // during this cycle
+        if (_traffic[cl].find("address_trace") != std::string::npos) {
+            AddressTraceTrafficPattern * temp
+                = (AddressTraceTrafficPattern*)_traffic_pattern[cl];
+            result = temp->IssuePacket(source, _time, _router[0]); // TODO: doesn't work if you have subnets
+        }
+
         //check queue for waiting replies.
         //check to make sure it is on time yet
         if (!_repliesPending[source].empty()) {
@@ -776,12 +785,8 @@ int TrafficManager::_IssuePacket( int source, int cl )
         } else {
    
             //produce a packet
-            if (_traffic[cl].find("address_trace") != std::string::npos) {
-                AddressTraceTrafficPattern * temp
-                    = (AddressTraceTrafficPattern*)_traffic_pattern[cl];
-                result = temp->IssuePacket(source, _time);
-
-            } else if(_injection_process[cl]->test(source)) {
+            if(_injection_process[cl]->test(source) &&
+                _traffic[cl].find("address_trace") == std::string::npos) {
 	
                 //coin toss to determine request type.
                 //1 == read request, 2 == write request
@@ -810,19 +815,12 @@ void TrafficManager::_GeneratePacket( int source, int stype,
     int pid = _cur_pid++;
     assert(_cur_pid);
 
-    int packet_destination; 
+    int packet_destination = _traffic_pattern[cl]->dest(source); 
     bool record = false;
     bool watch = gWatchOut && (_packets_to_watch.count(pid) > 0);
 
-    // address trace mode is different. the call to dest needs to know
-    // the current cycle in addition to the source
     if (_traffic[cl].find("address_trace") != std::string::npos) {
-        AddressTraceTrafficPattern * temp
-            = (AddressTraceTrafficPattern*)_traffic_pattern[cl];
-        packet_destination = temp->dest(source, time);
         assert(_use_read_write[cl]); // address trace should only be used in R/W mode
-    } else {
-        packet_destination = _traffic_pattern[cl]->dest(source);
     }
 
     // figure out what kind of packet it is going to be
