@@ -39,6 +39,7 @@ class KNCube : public Network {
 
   void _ComputeSize( const Configuration &config );
   void _BuildNet( const Configuration &config );
+  void _AssignCacheSet( const Configuration &config );
 
   int _LeftChannel( int node, int dim );
   int _RightChannel( int node, int dim );
@@ -51,6 +52,7 @@ public:
   static void RegisterRoutingFunctions();
 
   void PrintNet(); 
+  int getSet(long addr);
 
   int GetN( ) const;
   int GetK( ) const;

@@ -39,6 +39,9 @@
 #include "vc.hpp"
 #include "packet_reply_info.hpp"
 
+#include "Kncube.hpp"
+
+
 TrafficManager * TrafficManager::New(Configuration const & config,
                                      vector<Network *> const & net)
 {
@@ -227,8 +230,8 @@ TrafficManager::TrafficManager( const Configuration &config, const vector<Networ
     _injection_process.resize(_classes);
 
     for(int c = 0; c < _classes; ++c) {
-        _traffic_pattern[c] = TrafficPattern::New(_traffic[c], _nodes, &config);
-        _injection_process[c] = InjectionProcess::New(injection_process[c], _nodes, _load[c], &config);
+        _traffic_pattern[c] = TrafficPattern::New(_traffic[c], _nodes, &config, _net[c]);
+        _injection_process[c] = InjectionProcess::New(injection_process[c], _nodes, _load[c], &config); 
     }
 
     // ============ Injection VC states  ============ 
@@ -284,6 +287,8 @@ TrafficManager::TrafficManager( const Configuration &config, const vector<Networ
 
     _packet_seq_no.resize(_nodes);
     _repliesPending.resize(_nodes);
+    _delayedRepliesPending.resize(_nodes);
+    _replacementPending.resize(_nodes);
     _requestsOutstanding.resize(_nodes);
 
     _hold_switch_for_packet = config.GetInt("hold_switch_for_packet");
@@ -703,15 +708,63 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
 
         //code the source of request, look carefully, its tricky ;)
         if (f->type == Flit::READ_REQUEST || f->type == Flit::WRITE_REQUEST) {
-            PacketReplyInfo* rinfo = PacketReplyInfo::New();
-            rinfo->source = f->src;
-            rinfo->time = f->atime;
-            rinfo->record = f->record;
-            rinfo->type = f->type;
-            _repliesPending[dest].push_back(rinfo);
+            
+            // if not a replacement request, just check if line is in the cache bank
+            if(f->replacementReq == false)
+            {
+            
+                PacketReplyInfo* rinfo = PacketReplyInfo::New();
+                rinfo->source = f->src;
+                rinfo->time = f->atime;
+                rinfo->record = f->record;
+                rinfo->type = f->type;
+                // determine if cache hit or not
+                rinfo->cacheHit = _router[0][dest]->FindCacheLine(f->address);
+                rinfo->address  = f->address;
+                rinfo->reqPid   = f->reqPid;
+                _repliesPending[dest].push_back(rinfo);
+                // sort packets in _repliesPending to make sure packets that need to go to main memory doesn't block other packets
+                _repliesPending[dest].sort([](PacketReplyInfo * a, PacketReplyInfo * b){return a->time < b->time;});
+                cout << "[_RetireFlit] node " << dest << " received a R/W request flit from " << f->src << " . cacheHit=" << rinfo->cacheHit << endl;
+            }
+            else
+            {
+            cout << "[_RetireFlit] node " << dest << " received a replacement request flit from " << f->src << endl;
+                PacketReplyInfo* rinfo = PacketReplyInfo::New();
+                rinfo->source = f->src;
+                rinfo->time = f->atime + 10; // assume accessing main memory takes 100 cycles
+                rinfo->record = f->record;
+                rinfo->type = f->type;
+                // determine if cache hit or not
+                rinfo->cacheHit = true;
+                rinfo->address  = f->address;
+                rinfo->reqPid   = f->reqPid;
+                _delayedRepliesPending[dest].push_back(rinfo);
+            }
         } else {
             if(f->type == Flit::READ_REPLY || f->type == Flit::WRITE_REPLY  ){
+                cout << "[_RetireFlit] node " << dest << " received a reply flit from " << f->src << "... cacheHit=" << f->cacheHit << endl;
                 _requestsOutstanding[dest]--;
+
+                // update status of the request
+                _router[0][dest]->UpdateReplacementTrack(f->reqPid, f->cacheHit);
+                bool receivedAll = _router[0][dest]->ReceivedAllReply(f->reqPid);
+                if(receivedAll)
+                {
+                    cout << "[_RetireFlit] node " << dest << " received all replies... ";
+                    bool replace = _router[0][dest]->GetReplacementTrack(f->reqPid);
+                    if(replace)
+                    {
+                        cout << "got a cache MISS. adding to _replacementPending" << endl;
+                        int type = (f->type == Flit::READ_REPLY)?(1):(2); // 1==read, 2==write (conform to interpretation in _IssuePacket and _GeneratePacket)
+                        _replacementPending[dest].emplace(f->address, type);
+                        cout << "_replacementPending[" << dest << "]=<" << f->address << ", " << type << ">" << endl;
+                        cout << "_replacementPending[" << dest << "]=<" << _replacementPending[dest].begin()->first << ", " << _replacementPending[dest].begin()->second << ">" << endl;
+                    }
+                    else
+                        cout << "cacheHit=" << f->cacheHit << endl;
+                }
+
             } else if(f->type == Flit::ANY_TYPE) {
                 _requestsOutstanding[f->src]--;
             }
@@ -754,11 +807,13 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
 // class.
 // 2 == write
 // 1 == read
-// 0 == reply
-// -1 == do not generate
+// 0 == not generating packet
+// -1 == R/W reply
+// -2 == replacement reply
 int TrafficManager::_IssuePacket( int source, int cl )
 {
     int result = 0;
+    bool sendReply = false;
 
     // address trace mode must be used in R/W mode
     // since address trace traffic have both read and write
@@ -767,40 +822,76 @@ int TrafficManager::_IssuePacket( int source, int cl )
     }
 
     if(_use_read_write[cl]){ //use read and write
-        // if it is an address trace traffic pattern
-        // we need to enqueue any requests that are happening
-        // during this cycle
-        if (_traffic[cl].find("address_trace") != std::string::npos) {
-            AddressTraceTrafficPattern * temp
-                = (AddressTraceTrafficPattern*)_traffic_pattern[cl];
-            result = temp->IssuePacket(source, _time, _router[0]); // TODO: doesn't work if you have subnets
-        }
+    
+        // check the delayed queue for waiting replies
+        if(!_delayedRepliesPending[source].empty())
+        {
+            // send the reply if a request from main memort came back (cache line replaced in _GeneratePacket)
+            // (front()->time > _time means the cache line is still on it's way from main memory, so do nothing)
+            if(_delayedRepliesPending[source].front()->time <= _time) { 
+                result = -2;
+                sendReply = true;
+                cout << "[_IssuePacket] node " << source << " issue replacement reply" << endl;
+            }
 
+        }
         //check queue for waiting replies.
         //check to make sure it is on time yet
-        if (!_repliesPending[source].empty()) {
-            if(_repliesPending[source].front()->time <= _time) {
+        else if (!_repliesPending[source].empty()) { // this is replies generated from this node that needs to be sent out
+            if(_repliesPending[source].front()->time <= _time) { // front()->time > _time when reply is a line that just came from main memory
                 result = -1;
+                sendReply = true;
+                //cout << "[_IssuePacket] node " << source << " issue reply" << endl;
             }
-        } else {
-   
-            //produce a packet
-            if(_injection_process[cl]->test(source) &&
-                _traffic[cl].find("address_trace") == std::string::npos) {
-	
+        }
+
+        if(!sendReply) { //produce a packet
+        
+            // if it is an address trace traffic pattern
+            // we need to enqueue any requests that are happening
+            // during this cycle
+            // NOTE: this is here because nodes sending R/W request in our case is mutually exclusive to replying R/W requests
+            if (_traffic[cl].find("address_trace") != std::string::npos) {
+                // replacement request takes priority over new request
+                if(!_replacementPending[source].empty())
+                {
+                    result = _replacementPending[source].begin()->second;
+                    cout << "[_IssuePacket] node " << source << " issue replacement request " << endl;
+                }
+                else
+                {
+                    AddressTraceTrafficPattern * temp
+                        = (AddressTraceTrafficPattern*)_traffic_pattern[cl];
+                    result = temp->IssuePacket(source, _time, _router[0]); // TODO: doesn't work if you have subnets
+
+                    // update _requestsOutstanding... even though this is not used unless using batchTraffic mode
+                    if(result != 0)
+                    {
+                        cout << "[_IssuePacket] node " << source << " issue R/W request (result=" << result << ")" << endl;
+                        long address = ((AddressTraceTrafficPattern *)_traffic_pattern[cl])->GetAddr(source);
+                        if(address != 0)
+                        {
+                            int setNum = ((KNCube *)_net[0])->getSet(address);
+                            int numBanks = _net[0]->_cacheSets[setNum].size();
+                            _requestsOutstanding[source]+= numBanks;
+                        }
+                    }
+                }
+            }
+            else if(_injection_process[cl]->test(source)) {
                 //coin toss to determine request type.
-                //1 == read request, 2 == write request
+                // 1 == read request, 2 == write request
                 result = (RandomFloat() < _write_fraction[cl]) ? 2 : 1;
+                _requestsOutstanding[source]++;
             }
 
-            _requestsOutstanding[source]++;
         }
     } else { //normal mode
         result = _injection_process[cl]->test(source) ? 1 : 0;
         _requestsOutstanding[source]++;
     } 
     if(result != 0) {
-        _packet_seq_no[source]++;
+        _packet_seq_no[source]++; // TODO: what happens when it's a multicast? since this is used only in priority==sequencebased, disregard for now
     }
     return result;
 }
@@ -815,20 +906,54 @@ void TrafficManager::_GeneratePacket( int source, int stype,
     int pid = _cur_pid++;
     assert(_cur_pid);
 
-    int packet_destination = _traffic_pattern[cl]->dest(source); 
+    int packet_destination = _traffic_pattern[cl]->dest(source); // if using addr trace, this is a dummy call
+    vector<int> mcast_destination;
     bool record = false;
     bool watch = gWatchOut && (_packets_to_watch.count(pid) > 0);
 
     if (_traffic[cl].find("address_trace") != std::string::npos) {
         assert(_use_read_write[cl]); // address trace should only be used in R/W mode
     }
+    long address = 0;
+    int setNum = -1;
+    bool cacheHit       = false;
+    bool replacementReq = false;
+    int reqPid = pid;
 
     // figure out what kind of packet it is going to be
     if(_use_read_write[cl]){
 
         // check if it is a regular packet (read or write requet)
         if(stype > 0) {
-           
+            if (_traffic[cl].find("address_trace") != std::string::npos) { // if using addrTrace traffic
+                // replacement request takes priority over new request
+                if(!_replacementPending[source].empty())
+                {
+                    address = _replacementPending[source].begin()->first;
+                    setNum = ((KNCube *)_net[0])->getSet(address);
+                    packet_destination = _net[0]->_cacheSets[setNum][0]; // TODO: figure out which cache bank to designate for replacement
+                    cout << "[_GeneratePacket] R/W type is " << stype << ". replacement: address=0x" << std::hex << address << std::dec << " set=" << setNum << " destination node=";
+                    replacementReq = true;
+                    _replacementPending[source].erase(address);
+                }
+                else
+                {
+                    address = ((AddressTraceTrafficPattern *)_traffic_pattern[cl])->GetAddr(source);
+                    cout << "[_GeneratePacket] getting new R/W request for address=0x" << std::hex << address << std::dec << endl;
+                    if(address != 0)
+                    {
+                        ((AddressTraceTrafficPattern *)_traffic_pattern[cl])->sendInfoQueues[source].pop_front(); // for now don't worry about size and type
+                        setNum = ((KNCube *)_net[0])->getSet(address);
+                        mcast_destination = _net[0]->_cacheSets[setNum];
+                        _router[0][source]->NewReplyTrack(pid, mcast_destination.size());
+                        _router[0][source]->NewReplacementTrack(pid);
+                        replacementReq = false;
+                        cout << "[_GeneratePacket] mcast request to ";
+                    }
+                }
+            }
+            
+            // TODO: for now just use same size as config file specified (disregard the addr trace size info)
             // this is a cointoss integer from _IssuePacket
             if (stype == 1) { 
                 packet_type = Flit::READ_REQUEST;
@@ -845,9 +970,21 @@ void TrafficManager::_GeneratePacket( int source, int stype,
                 Error( err.str( ) );
             }
 
+
         // at this point, we know the packet is a reply
         } else {
-            PacketReplyInfo* rinfo = _repliesPending[source].front();
+        
+            PacketReplyInfo* rinfo;
+            if(stype == -1) // normal reply
+            {
+                rinfo = _repliesPending[source].front();
+            }
+            else // stype==-2 this is a replacement reply
+            {
+                rinfo = _delayedRepliesPending[source].front();
+                // update the cache line info at the router
+                _router[0][source]->AddCacheLine(rinfo->address, rinfo->time);
+            }
         
             //read reply
             if (rinfo->type == Flit::READ_REQUEST) {
@@ -868,7 +1005,19 @@ void TrafficManager::_GeneratePacket( int source, int stype,
             packet_destination = rinfo->source;
             time = rinfo->time;
             record = rinfo->record;
-            _repliesPending[source].pop_front();
+            cacheHit = rinfo->cacheHit;
+            address  = rinfo->address;
+            reqPid   = rinfo->reqPid;
+
+            if(stype == -1) // normal reply
+            {
+                _repliesPending[source].pop_front();
+            }
+            else // stype==-2 this is a replacement reply
+            {
+                _delayedRepliesPending[source].pop_front();
+            }
+            cout << "[_GeneratePacket] sending reply to ";
             rinfo->Free();
         }
     }
@@ -896,73 +1045,88 @@ void TrafficManager::_GeneratePacket( int source, int stype,
                    << " at time " << time
                    << "." << endl;
     }
- 
-    // inject the packet, flit by flit 
-    for ( int i = 0; i < size; ++i ) {
-        Flit * f  = Flit::New();
-        f->id     = _cur_id++;
-        assert(_cur_id);
-        f->pid    = pid;
-        f->watch  = watch | (gWatchOut && (_flits_to_watch.count(f->id) > 0));
-        f->subnetwork = subnetwork;
-        f->src    = source;
-        f->ctime  = time;
-        f->record = record;
-        f->cl     = cl;
 
-        _total_in_flight_flits[f->cl].insert(make_pair(f->id, f));
-        if(record) {
-            _measured_in_flight_flits[f->cl].insert(make_pair(f->id, f));
+    //multicast to all nodes in the set if it's not a replacement request or reply
+    do {
+        if(!mcast_destination.empty())
+        {
+            packet_destination = mcast_destination.back();
+            mcast_destination.pop_back();
         }
-    
-        if(gTrace){
-            cout<<"New Flit "<<f->src<<endl;
-        }
-        f->type = packet_type;
+        cout << packet_destination << " ";
+        // inject the packet, flit by flit 
+        for ( int i = 0; i < size; ++i ) {
+            Flit * f  = Flit::New();
+            f->id     = _cur_id++;
+            assert(_cur_id);
+            f->pid    = pid;
+            f->watch  = watch | (gWatchOut && (_flits_to_watch.count(f->id) > 0));
+            //f->subnetwork = subnetwork;
+            f->subnetwork = 0; // hack... make everything go on subnet[0]
+            f->src    = source;
+            f->ctime  = time;
+            f->record = record;
+            f->cl     = cl;
+            f->cacheHit = cacheHit;
+            f->replacementReq = replacementReq;
+            f->address = address;
+            f->reqPid = reqPid;
 
-        if ( i == 0 ) { // Head flit
-            f->head = true;
-            //packets are only generated to nodes smaller or equal to limit
-            f->dest = packet_destination;
-        } else {
-            f->head = false;
-            f->dest = -1;
-        }
-        switch( _pri_type ) {
-        case class_based:
-            f->pri = _class_priority[cl];
-            assert(f->pri >= 0);
-            break;
-        case age_based:
-            f->pri = numeric_limits<int>::max() - time;
-            assert(f->pri >= 0);
-            break;
-        case sequence_based:
-            f->pri = numeric_limits<int>::max() - _packet_seq_no[source];
-            assert(f->pri >= 0);
-            break;
-        default:
-            f->pri = 0;
-        }
-        if ( i == ( size - 1 ) ) { // Tail flit
-            f->tail = true;
-        } else {
-            f->tail = false;
-        }
-    
-        f->vc  = -1;
+            _total_in_flight_flits[f->cl].insert(make_pair(f->id, f));
+            if(record) {
+                _measured_in_flight_flits[f->cl].insert(make_pair(f->id, f));
+            }
+        
+            if(gTrace){
+                cout<<"New Flit "<<f->src<<endl;
+            }
+            f->type = packet_type;
 
-        if ( f->watch ) { 
-            *gWatchOut << GetSimTime() << " | "
-                       << "node" << source << " | "
-                       << "Enqueuing flit " << f->id
-                       << " (packet " << f->pid
-                       << ") at time " << time
-                       << "." << endl;
-        }
+            if ( i == 0 ) { // Head flit
+                f->head = true;
+                //packets are only generated to nodes smaller or equal to limit
+                f->dest = packet_destination;
+            } else {
+                f->head = false;
+                f->dest = -1;
+            }
+            switch( _pri_type ) {
+            case class_based:
+                f->pri = _class_priority[cl];
+                assert(f->pri >= 0);
+                break;
+            case age_based:
+                f->pri = numeric_limits<int>::max() - time;
+                assert(f->pri >= 0);
+                break;
+            case sequence_based:
+                f->pri = numeric_limits<int>::max() - _packet_seq_no[source];
+                assert(f->pri >= 0);
+                break;
+            default:
+                f->pri = 0;
+            }
+            if ( i == ( size - 1 ) ) { // Tail flit
+                f->tail = true;
+            } else {
+                f->tail = false;
+            }
+        
+            f->vc  = -1;
 
-        _partial_packets[source][cl].push_back( f );
-    }
+            if ( f->watch ) { 
+                *gWatchOut << GetSimTime() << " | "
+                           << "node" << source << " | "
+                           << "Enqueuing flit " << f->id
+                           << " (packet " << f->pid
+                           << ") at time " << time
+                           << "." << endl;
+            }
+
+            _partial_packets[source][cl].push_back( f );
+        }
+    } while (!mcast_destination.empty());
+    cout << endl;
 }
 
 void TrafficManager::_Inject(){
@@ -972,19 +1136,22 @@ void TrafficManager::_Inject(){
             // Potentially generate packets for any (input,class)
             // that is currently empty
             if ( _partial_packets[input][c].empty() ) {
+                //cout << "[_Inject] Trying to inject... qtime=" <<  _qtime[input][c] << "  time=" << _time << endl;
                 bool generated = false;
                 while( !generated && ( _qtime[input][c] <= _time ) ) {
-                    int stype = _IssuePacket( input, c );
+                    int stype = _IssuePacket( input, c ); // this function determines if a packet should be issued or not (1=read, 2=write, -1=reply) but doesn't generate the packets
 	  
                     if ( stype != 0 ) { //generate a packet
                         _GeneratePacket( input, stype, c, 
                                          _include_queuing==1 ? 
                                          _qtime[input][c] : _time );
                         generated = true;
+                        cout << "[_Inject] generated a packet]" << endl;
                     }
                     // only advance time if this is not a reply packet
                     if(!_use_read_write[c] || (stype >= 0)){
                         ++_qtime[input][c];
+                        //cout << "[_Inject] new qtime=" <<  _qtime[input][c] << "  time=" << _time << endl;
                     }
                 }
 	
@@ -993,12 +1160,17 @@ void TrafficManager::_Inject(){
                     _qdrained[input][c] = true;
                 }
             }
+            else
+            {
+                //cout << "[_Inject] Still processing previous inject..." << endl;
+            }
         }
     }
 }
 
 void TrafficManager::_Step( )
 {
+//cout << "====in _Step ====" << endl;
     bool flits_in_flight = false;
     for(int c = 0; c < _classes; ++c) {
         flits_in_flight |= !_total_in_flight_flits[c].empty();
@@ -1050,10 +1222,12 @@ void TrafficManager::_Step( )
         }
         _net[subnet]->ReadInputs( );
     }
+    //cout << "====[_Step] after ejecting & processing credit ====" << endl;
 
     if ( !_empty_network ) {
         _Inject();
     }
+    //cout << "====[_Step] after inject ====" << endl;
 
     // logic to move flits along the router??? not sure
     for(int subnet = 0; subnet < _subnets; ++subnet) {
@@ -1098,6 +1272,7 @@ void TrafficManager::_Step( )
                 if(cf->subnetwork != subnet) {
                     continue;
                 }
+                //cout << "====[_Step] ready to process flits ====" << endl;
 
                 if(f && (f->pri >= cf->pri)) {
                     continue;
@@ -1204,6 +1379,7 @@ void TrafficManager::_Step( )
 
             // if successful in moving current flit, deallocate the previous VC
             if(f) {
+                //cout << "====[_Step] ready to deallocate VC ====" << endl;
 
                 assert(f->subnetwork == subnet);
 
@@ -1290,6 +1466,7 @@ void TrafficManager::_Step( )
 
     // for all VC's deallocated, send out credit
     for(int subnet = 0; subnet < _subnets; ++subnet) {
+        //cout << "====[_Step] ready to send credit ====" << endl;
         for(int n = 0; n < _nodes; ++n) {
             map<int, Flit *>::const_iterator iter = flits[subnet].find(n);
             if(iter != flits[subnet].end()) {
@@ -1320,6 +1497,7 @@ void TrafficManager::_Step( )
     }
 
     ++_time;
+    cout<<"TIME "<<_time<<endl;
     assert(_time);
     if(gTrace){
         cout<<"TIME "<<_time<<endl;
@@ -1674,6 +1852,14 @@ bool TrafficManager::Run( )
                 _repliesPending[i].front()->Free();
                 _repliesPending[i].pop_front();
             }
+            while(!_delayedRepliesPending[i].empty()) {
+                _delayedRepliesPending[i].front()->Free();
+                _delayedRepliesPending[i].pop_front();
+            }
+            if(!_replacementPending[i].empty()) {
+                _replacementPending[i].clear();
+            }
+
         }
 
         //reset queuetime for all sources

@@ -37,6 +37,8 @@
 #include <list>
 #include "router.hpp"
 
+#include "Network.hpp"
+
 using namespace std;
 
 class TrafficPattern {
@@ -44,11 +46,12 @@ protected:
   int _nodes;
   TrafficPattern(int nodes);
 public:
+  Network * _net; // only used for addr trace traffic
   virtual ~TrafficPattern() {}
   virtual void reset();
   virtual int dest(int source) = 0;
   static TrafficPattern * New(string const & pattern, int nodes, 
-			      Configuration const * const config = NULL);
+			      Configuration const * const config = NULL, Network * net = NULL);
 };
 
 class PermutationTrafficPattern : public TrafficPattern {
@@ -212,12 +215,15 @@ private:
   map<int, list<Flit *> > sendQueues; // a queue of flits we need to send out. useful for multicasting /smart NUCA query
 
 public:
-  AddressTraceTrafficPattern(int nodes, string  & fileName);
+  map<int, list<CycleInfo *> > sendInfoQueues; // this queues the info from addr trace (only one copy, the multicast logic will be in _GeneratePacket function
+  AddressTraceTrafficPattern(int nodes, string  & fileName, Network * net);
   ~AddressTraceTrafficPattern();
   virtual int dest(int source);
   void LoadCycleData(int cycle);
   void AddCycleInfo(int accessType, int source, int size, long address);
+  void ClearCycleInfo();
   int GetAccessType(int source);
+  long GetAddr(int source);
   int IssuePacket(int source, int cycle, vector<Router *>);
 };
 

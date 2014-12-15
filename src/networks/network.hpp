@@ -72,6 +72,9 @@ protected:
   void _Alloc( );
 
 public:
+    
+  vector< vector<int> > _cacheSets; // each element is the actual nodeID
+  map<int, int>procToNodeMap; // <processorID, nodeID>
   Network( const Configuration &config, const string & name );
   virtual ~Network( );
 

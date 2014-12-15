@@ -80,6 +80,10 @@ void Flit::Reset()
   intm =-1;
   ph = -1;
   data = 0;
+  cacheHit        = false;
+  replacementReq  = false;
+  address         = 0;
+  reqPid          = 0;
 }  
 
 Flit * Flit::New() {

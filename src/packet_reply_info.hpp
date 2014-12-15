@@ -40,6 +40,10 @@ public:
   int time; // the arrival time of the request
   bool record;
   Flit::FlitType type; // the type of request made
+  //cache info
+  bool cacheHit;
+  long address;
+  int reqPid;
 
   static PacketReplyInfo* New();
   void Free();

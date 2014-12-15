@@ -50,6 +50,8 @@ Network( config, name )
   _ComputeSize( config );
   _Alloc( );
   _BuildNet( config );
+  _AssignCacheSet( config );
+
 }
 
 void KNCube::_ComputeSize( const Configuration &config )
@@ -84,6 +86,69 @@ void KNCube::PrintNet() {
 void KNCube::RegisterRoutingFunctions() {
 
 }
+
+
+int KNCube::getSet( long addr )
+{
+    int numSets = _cacheSets.size();
+    int set = addr % numSets;
+    cout << "getSet: " << addr << " = set " << set << endl;
+    return set;
+}
+
+void KNCube::_AssignCacheSet( const Configuration &config )
+{
+  if(0 == config.GetStr("set_map").compare(""))
+  {
+    // TODO: no file specified, every node is it's own set
+  }
+  else
+  {
+    string line;
+    int node = 0;
+    ifstream set_map_file (config.GetStr("set_map").c_str());
+    getline(set_map_file, line);
+    while(0 != line.compare(""))
+    {
+      char * cstr = new char [line.length()+1];
+      strcpy(cstr, line.c_str());
+      char *word;
+      word = strtok(cstr, " ");
+      while(NULL != word)
+      {
+        int setNum = atoi(word);
+        if(setNum >= 0) // -1 are assigned to processors in the map file
+        {
+          if(_cacheSets.size() <= setNum)
+          {
+            _cacheSets.resize(setNum+1); //setNum starts from 0
+          }
+          (_cacheSets[setNum]).push_back(node);
+        }
+        node++;
+        word = strtok(NULL, " ");
+      }
+      delete(cstr);
+      getline(set_map_file, line);
+    }
+  }
+
+  cout << "==============================================" << endl;
+  cout << "There are " << _cacheSets.size() << " sets in total" << endl;
+  for(int i = 0; i < 8; i++)
+  {
+    cout << "set " << i << ": ";
+    for(int j=0; j < _cacheSets[i].size(); j++)
+    {
+      cout << "[" << _cacheSets[i][j] << "]";
+    }
+    cout << endl;
+  }
+  cout << "==============================================" << endl;
+
+
+}
+
 void KNCube::_BuildNet( const Configuration &config )
 {
   int left_node;
@@ -104,6 +169,7 @@ void KNCube::_BuildNet( const Configuration &config )
     string line;
     char c_line [100];
     int node = 0;
+    int procNum = 0;
     int type = 0;
     unsigned long begin_addr = 0;
     unsigned long end_addr = 0;
@@ -113,8 +179,35 @@ void KNCube::_BuildNet( const Configuration &config )
     assert(node_map_file.is_open());
     isAddrTrace = true;
 
+#if 1
+    getline(node_map_file, line);
+    while(0 != line.compare(""))
+    {
+      char * cstr = new char [line.length()+1];
+      strcpy(cstr, line.c_str());
+      char *word;
+      word = strtok(cstr, " ");
+      while(NULL != word)
+      {
+        type = atoi(word);
+        node_config[node].push_back(type);
+        if(type == 1)
+        {
+            procToNodeMap.emplace(procNum, node);
+            procNum++;
+        }
+        node++;
+        word = strtok(NULL, " ");
+      }
+      delete(cstr);
+      getline(node_map_file, line);
+    }
+
+#endif
+#if 0
     while (getline(node_map_file, line)) {
-      memcpy(c_line, line.c_str(), 300);
+      strcpy(c_line, line.c_str());
+      //memcpy(c_line, line.c_str(), 300);
       node = atoi(strtok(c_line, " "));
       type = atoi(strtok(NULL, " "));
       node_config[node].push_back(type);
@@ -130,7 +223,7 @@ void KNCube::_BuildNet( const Configuration &config )
           end_addr_str = strtok(NULL, " ");  
       }
     }
-
+#endif
     node_map_file.close();
     assert(_size == node_config.size());
   }

@@ -50,8 +50,9 @@ void TrafficPattern::reset()
 }
 
 TrafficPattern * TrafficPattern::New(string const & pattern, int nodes, 
-				     Configuration const * const config)
+				     Configuration const * const config, Network * net)
 {
+assert(NULL != net);
   string pattern_name;
   string param_str;
   size_t left = pattern.find_first_of('(');
@@ -196,7 +197,7 @@ TrafficPattern * TrafficPattern::New(string const & pattern, int nodes,
     }
     result = new HotSpotTrafficPattern(nodes, hotspots, rates);
   } else if (pattern_name == "address_trace") {
-    result = new AddressTraceTrafficPattern(nodes, params[0]);
+    result = new AddressTraceTrafficPattern(nodes, params[0], net);
   } else {
     cout << "Error: Unknown traffic pattern: " << pattern << endl;
     exit(-1);
@@ -531,12 +532,13 @@ int HotSpotTrafficPattern::dest(int source)
   return _hotspots.back();
 }
 
-AddressTraceTrafficPattern::AddressTraceTrafficPattern(int nodes, string & fileName)
+AddressTraceTrafficPattern::AddressTraceTrafficPattern(int nodes, string & fileName, Network * net)
 :TrafficPattern(nodes)
 {
   addressTraceFile.open(fileName.c_str(), ios::in);
   assert(addressTraceFile.is_open()); // if this assert fails, file is unopen. file path likely wrong
   curCycle = -1;
+  _net = net;
 }
 
 AddressTraceTrafficPattern::~AddressTraceTrafficPattern() {
@@ -546,26 +548,31 @@ AddressTraceTrafficPattern::~AddressTraceTrafficPattern() {
 // Assumes address trace format of <cycle> <node ID> <address> <R/W>
 // NOTE: this function actually dequeues one of the requests
 int AddressTraceTrafficPattern::dest(int source) {
-  int dest;
-
+  int dest = 0;
+#if 0
   // push the head of the queue
   dest = sendQueues[source].front()->dest;
   sendQueues[source].pop_front();
   cout<<"sending flit to " << dest;
+#endif
   return dest;
 }
 
-// NOTE: this function enqueues address requests
+// NOTE: this function enqueues address requests. cycle ==_time, not _qtime
 int AddressTraceTrafficPattern::IssuePacket(int source, int cycle, vector<Router *> routers) {
   // check if the current cycle's worth of data is already loaded
-  if (cycle != curCycle) {
-    LoadCycleData(cycle);
+  if (cycle > curCycle) {
+    //cout << "[AddrTrace::IssuePacket] going to load cycle data" << endl;
+    LoadCycleData(cycle); //this loads the injections in that cycle
   }
 
-  if (cycleInfo.count(source) == 0) {
+  if ((cycleInfo.count(source) == 0) && (sendInfoQueues[source].empty())){
+    //cout << "[AddrTrace::IssuePacket] cycleInfo is empty & sendInfoQueues is empty" << endl;
     return 0;
   }
-
+  cout << "[IssuePacket] node " << source << " issuing packet" << endl;
+  
+#if 0
   // for now, implement multicast. query all cache banks
   // responsible for the address
   int accessType = GetAccessType(source);
@@ -575,10 +582,11 @@ int AddressTraceTrafficPattern::IssuePacket(int source, int cycle, vector<Router
         sendQueues[source].push_back(new Flit(accessType, i));
     } 
   }
+#endif
 
-  assert(sendQueues[source].front() != NULL);
-  accessType = sendQueues[source].front()->accessType;
-  // do not pop front of sendQueues, that is the job of dest
+  assert(sendInfoQueues[source].front() != NULL);
+  int accessType = GetAccessType(source);
+  // do not pop front of sendQueues, that happens in _GeneratePacket
   return accessType;
 }
 
@@ -588,7 +596,7 @@ void AddressTraceTrafficPattern::LoadCycleData(int cycle) {
     int parseCycle;
     int parseSource;
     unsigned long parseAddress;
-    int dest;
+    //int dest;
     int accessType;
     char * parseAccessType;
     int parseSize;
@@ -596,31 +604,41 @@ void AddressTraceTrafficPattern::LoadCycleData(int cycle) {
     if (cycle == curCycle) {
         return;
     }
-
-    cycleInfo.clear();
-
+//cout << "[LoadCycleData] curCycle=" << curCycle << " cycle=" << cycle << endl;
+    ClearCycleInfo();
+    
+    //int prevCycle = curCycle;
+    int filePos = addressTraceFile.tellg();
     // it hasn't been loaded, so load
     while (getline(addressTraceFile, line)) {
+      
       memcpy(c_line, line.c_str(), 300);
+      //cout << "[LoadCycleData] read in line: " << c_line << endl;
       parseCycle = atoi(strtok(c_line, " "));
       parseAccessType = strtok(NULL, " ");
-      parseSource = atoi(strtok(NULL, " "));
+      parseSource = atoi(strtok(NULL, " ")); 
+      assert(!_net->procToNodeMap.empty());
+      int source = _net->procToNodeMap[parseSource]; // convert processor ID to node ID
       parseSize = atoi(strtok(NULL, " "));
-      parseAddress = atol(strtok(NULL, " "));
-
+      //parseAddress = atol(strtok(NULL, " "));
+      parseAddress = strtol((strtok(NULL, " ")), NULL, 16);
+      long address = _net->GetRouter(source)->GetAlignedAddress(parseAddress);
       if (parseCycle > cycle) {
         break;
       }
 
-      if (parseAccessType == "Write") {
+      if (0 == strcmp(parseAccessType,"Write")) {
         accessType = 2; // code for write from trafficmanager.cpp
       } else {
         accessType = 1; // code for read from trafficmanager.cpp
       }
-
-      AddCycleInfo(accessType, parseSource, parseSize, parseAddress);
+      filePos = addressTraceFile.tellg();
+      //prevCycle = parseCycle;
+      AddCycleInfo(accessType, source, parseSize, address);
+      sendInfoQueues[source].push_back(new CycleInfo(cycleInfo[source]->accessType, cycleInfo[source]->size, cycleInfo[source]->address));
+      cout << "[LoadCycleData] Read in accessType: " << accessType << " source: " << source << " size: " << parseSize << " Address: 0x" << std::hex << address << std::dec << endl;
     } 
-    addressTraceFile.seekg(-1, ios::cur);
+    addressTraceFile.seekg(filePos); //rewind the last getline
 
     curCycle = cycle;
 }
@@ -628,12 +646,29 @@ void AddressTraceTrafficPattern::LoadCycleData(int cycle) {
 void AddressTraceTrafficPattern::AddCycleInfo(int accessType, int source, int size, long address) {
     cycleInfo[source] = new CycleInfo(accessType, size, address);
 }
+void AddressTraceTrafficPattern::ClearCycleInfo()
+{
+    for (std::map<int, CycleInfo *>::iterator it=cycleInfo.begin(); it!=cycleInfo.end(); ++it)
+    {
+        delete it->second;
+    }
+    cycleInfo.clear();
+}
 
 int AddressTraceTrafficPattern::GetAccessType(int source){
-    if (cycleInfo.count(source) > 0) {
-        return cycleInfo[source]->accessType;
+    if (sendInfoQueues[source].size() > 0) {
+        return sendInfoQueues[source].front()->accessType;
     }
 
     return 0;
 }
+
+long AddressTraceTrafficPattern::GetAddr(int source){
+    if (sendInfoQueues[source].size() > 0) {
+        return sendInfoQueues[source].front()->address;
+    }
+
+    return 0;
+}
+
 

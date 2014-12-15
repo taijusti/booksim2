@@ -57,7 +57,9 @@ int const Router::STALL_CROSSBAR_CONFLICT = -6;
 int const Router::NODE_TYPE_CACHE_NODE = 0;
 int const Router::NODE_TYPE_PROC_NODE = 1;
 int const Router::NODE_TYPE_EMPTY_NODE = 2;
-int const Router::CACHE_LINE_SIZE = 1 * 1024 * 1024 / 4; // 1MB, word addressable
+//int const Router::CACHE_LINE_SIZE = 1 * 1024 * 1024 / 4; // 1MB, word addressable <-- what was this again??
+int const Router::NUM_CACHE_LINES_PER_BANK = 256; // each bank is 16KB --> 16KB / 64B = 256
+int const Router::CACHE_LINE_SIZE = 64; // each line is 64 bytes
 
 Router::Router( const Configuration& config,
 		Module *parent, const string & name, int id,
@@ -160,3 +162,111 @@ Router *Router::NewRouter( const Configuration& config,
 			   int inputs, int outputs) {
     return NewRouter(config, parent, name, id, inputs, outputs, 1);
 }
+
+
+bool Router::FindCacheLine(long address) {
+    assert(NODE_TYPE_CACHE_NODE == this->node_type);
+    return cache_lines.find(address) != cache_lines.end();
+}
+
+// returns the address of the LRU line
+long Router::FindLRU() {
+    assert(!cache_lines.empty());
+    long addr = cache_lines.begin()->first;
+    int time = cache_lines.begin()->second;
+    for (std::map<long,int>::iterator it=cache_lines.begin(); it!=cache_lines.end(); ++it)
+    {
+        if(it->second < time)
+        {
+            addr = it->first;
+            time = it->second;
+        }
+    }
+    return addr;
+}
+
+long Router::GetAlignedAddress(long addr)
+{
+    long alignedAddr = addr/CACHE_LINE_SIZE * CACHE_LINE_SIZE;
+    return alignedAddr;
+}
+void Router::AddCacheLine(long address, int time) {
+    assert(NODE_TYPE_CACHE_NODE == this->node_type);
+    if(cache_lines.size() < NUM_CACHE_LINES_PER_BANK)
+    {
+        // cache not full, just insert
+        cache_lines.insert(std::pair<long, int>(address, time));
+    }
+    else
+    {
+        // cache full... replace the LRU line
+        int key = FindLRU();
+        cache_lines.erase(key);
+        cache_lines.insert(std::pair<long, int>(address, time));
+    }
+}
+
+void Router::RemoveCacheLine(long address) {
+    assert(NODE_TYPE_CACHE_NODE == this->node_type);
+    cache_lines.erase(address);
+}
+
+// check if this cache bank handles the passed in address
+bool Router::HandlesAddress(long address) {
+    if (this->node_type != NODE_TYPE_CACHE_NODE) {
+        return false;
+    }
+
+    for (int i = 0; i < address_ranges.size(); i++) {
+        // assumes addresses 
+        if (address_ranges[i].first <= address
+            && address <= address_ranges[i].second) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+void Router::NewReplyTrack (int packetId, int size) {
+    replyCounts.insert(make_pair(packetId, size));
+}
+
+// this function updates the reply count received so far and returns whether all replies have been received yet
+bool Router::ReceivedAllReply (int packetId) {
+    int curCount = replyCounts[packetId];
+    cout << "replyCounts[" << packetId << "]=" << curCount << endl;
+    if(curCount == 1)
+    {
+        // all replies have been received
+        replyCounts.erase(packetId);
+        return true;
+    }
+    else
+    {
+        replyCounts[packetId] = curCount - 1;
+        return false;
+    }
+}
+
+void Router::NewReplacementTrack (int packetId) {
+    replacementRequest.insert(make_pair(packetId, true));
+}
+
+void Router::UpdateReplacementTrack (int packetId, bool cacheHit) {
+    if(cacheHit)
+    {
+        cout << "CACHE HIT!!" << endl;
+        replacementRequest[packetId] = false;
+    }
+}
+
+// Note: this removes the replacement status for the packet once it's called
+bool Router::GetReplacementTrack (int packetId) {
+    bool replace = replacementRequest[packetId];
+    replacementRequest.erase(packetId);
+    cout << " (replace=" << replace << ") " << endl;
+    return replace;
+}
+

@@ -83,6 +83,12 @@ public:
   // Lookahead route info
   OutputSet la_route_set;
 
+  //cache related variables
+  bool cacheHit;
+  bool replacementReq;
+  long address;
+  int  reqPid;
+
   void Reset();
 
   static Flit * New();

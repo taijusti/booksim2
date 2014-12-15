@@ -52,6 +52,7 @@ protected:
   static int const NODE_TYPE_CACHE_NODE;
   static int const NODE_TYPE_PROC_NODE;
   static int const NODE_TYPE_EMPTY_NODE;
+  static int const NUM_CACHE_LINES_PER_BANK;
   static int const CACHE_LINE_SIZE;
 
   int _id;
@@ -74,9 +75,18 @@ protected:
   // (e.g. processor node, cache node, or empty node)
   int node_type; 
 
+  // ======= relevent only if this node is a cache ============
   // which cache lines are currently held inside this bank
-  map<long, int> cache_lines;
-
+  map<long, int> cache_lines; // <address, timestamp (LRU info)>
+  // ================================================================
+  
+  // ======= relevent only if this node is a processor ============
+  // which replies this router is still waiting for (pid, count)
+  map<int, int> replyCounts;
+  // tracks which R/W requests need to issue replacement request (pid, requestReplacement?)
+  map<int, bool> replacementRequest;
+  // ================================================================
+  
   // which addresses this cache bank should handle
   vector<std::pair<long, long> > address_ranges; 
   
@@ -220,38 +230,24 @@ public:
   inline int NumInputs() const {return _inputs;}
   inline int NumOutputs() const {return _outputs;}
 
-  bool FindCacheLine(long address) {
-    assert(NODE_TYPE_CACHE_NODE == this->node_type);
-    return cache_lines.find(address) == cache_lines.end();
-  }
-
-  void AddCacheLine(long address) {
-    assert(NODE_TYPE_CACHE_NODE == this->node_type);
-    assert(cache_lines.size() < CACHE_LINE_SIZE);
-    cache_lines.insert(std::pair<long, int>(address, 0));
-  }
-
-  void RemoveCacheLine(long address) {
-    assert(NODE_TYPE_CACHE_NODE == this->node_type);
-    cache_lines.erase(address);
-  }
-
+  bool FindCacheLine(long address);
+  long FindLRU();
+  long GetAlignedAddress(long addr);
+  void AddCacheLine(long address, int time);
+  void RemoveCacheLine(long address);
   // check if this cache bank handles the passed in address
-  bool HandlesAddress(long address) {
-    if (this->node_type != NODE_TYPE_CACHE_NODE) {
-        return false;
-    }
+  bool HandlesAddress(long address);
 
-    for (int i = 0; i < address_ranges.size(); i++) {
-        // assumes addresses 
-        if (address_ranges[i].first <= address
-            && address <= address_ranges[i].second) {
-            return true;
-        }
-    }
 
-    return false;
-  }
+  void NewReplyTrack (int packetId, int size) ;
+
+  // this function updates the reply count received so far and returns whether all replies have been received yet
+  bool ReceivedAllReply (int packetId);
+  
+  void NewReplacementTrack (int packetId);
+  void UpdateReplacementTrack (int packetId, bool cacheHit);
+  bool GetReplacementTrack (int packetId);
+  
 };
 
 #endif

@@ -71,6 +71,7 @@ n  = 2;
 // Routing
 
 node_map = ../runfiles/node_map_file;
+set_map = ../runfiles/set_map_file;
 
 routing_function = dor;
 

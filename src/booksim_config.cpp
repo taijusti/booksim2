@@ -70,6 +70,7 @@ BookSimConfig::BookSimConfig( )
   AddStrField( "fail_seed", "" ); // workaround to allow special "time" value
 
   AddStrField( "node_map", ""); // if no node map, just assume everything is a CPU
+  AddStrField( "set_map", "");	// if no set map, assume fully associative
 
   //==== Single-node options ===============================
 
