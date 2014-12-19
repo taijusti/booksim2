@@ -209,25 +209,32 @@ long Router::GetAlignedAddress(long addr)
     long alignedAddr = addr/CACHE_LINE_SIZE * CACHE_LINE_SIZE;
     return alignedAddr;
 }
+
 void Router::AddCacheLine(long address, int time) {
     assert(NODE_TYPE_CACHE_NODE == this->node_type);
-    if(cache_lines.size() < NUM_CACHE_LINES_PER_BANK)
+
+    // check if cache bank is full. if so, need to evict a
+    // cache line before inserting a new one
+    if(cache_lines.size() >= NUM_CACHE_LINES_PER_BANK)
     {
-        // cache not full, just insert
-        cache_lines.insert(std::pair<long, int>(address, time));
-    }
-    else
-    {
-        // cache full... replace the LRU line
         int key = FindLRU();
         cache_lines.erase(key);
-        cache_lines.insert(std::pair<long, int>(address, time));
+        vertical_tendency.erase(address);
+        horizontal_tendency.erase(address);
     }
+
+    // insert new cache line
+    cache_lines.insert(std::pair<unsigned long, int>(address, time));
+    vertical_tendency.insert(std::pair<unsigned long, unsigned char>(address, 1));
+    horizontal_tendency.insert(std::pair<unsigned long, unsigned char>(address, 1));
+
 }
 
 void Router::RemoveCacheLine(long address) {
     assert(NODE_TYPE_CACHE_NODE == this->node_type);
     cache_lines.erase(address);
+    vertical_tendency.erase(address);
+    horizontal_tendency.erase(address);
 }
 
 // check if this cache bank handles the passed in address
@@ -289,6 +296,46 @@ bool Router::GetReplacementTrack (int packetId) {
     return replace;
 }
 
+int Router::GetHorizontalTendency(unsigned long addr){
+    return horizontal_tendency[addr];
+}
+
+int Router::GetVerticalTendency(unsigned long addr){
+    return vertical_tendency[addr];
+}
+
+void Router::UpdateTendency(unsigned long addr, unsigned char dir) {
+    // update the tendency
+    switch(dir) {
+        case 0: // NORTH
+            if (vertical_tendency[addr] > 0) {
+                vertical_tendency[addr]--;
+                cout << addr << " is going NORTH\n";
+            }
+            break;
+        case 1: // SOUTH
+            if (vertical_tendency[addr] < 3) {
+                vertical_tendency[addr]++;
+                cout << addr << " is going SOUTH\n";
+            }
+            break;
+        case 2: // EAST
+            if (horizontal_tendency[addr] > 0) {
+                horizontal_tendency[addr]--;
+                cout << addr << " is going EAST\n";
+            }
+            break;
+        case 3: // WEST
+            if (horizontal_tendency[addr] < 3) {
+                horizontal_tendency[addr]++;
+                cout << addr << " is going WEST\n";
+            }
+            break;
+        default:
+            assert(0);
+    }
+}
+
 void Router::NewRequestTimeTrack (int packetId, int time) {
     requestTime.insert(make_pair(packetId, time));
 }
@@ -300,5 +347,3 @@ void Router::DeleteRequestTimeTrack (int packetId) {
 int Router::GetRequestTimeTrack (int packetId) {
     return requestTime[packetId];
 }
-
-

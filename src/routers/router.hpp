@@ -92,6 +92,16 @@ protected:
   
   // which addresses this cache bank should handle
   vector<std::pair<long, long> > address_ranges; 
+
+  // the north/south tendency of each cache line
+  // 0 means strongly tending north,
+  // 3 means strongly tending south
+  map<unsigned long, unsigned char> vertical_tendency;  
+
+  // the west/east tendency of each cache line
+  // 0 means strongly tending west
+  // 3 means strongly tending east
+  map<unsigned long, unsigned char> horizontal_tendency;
   
   vector<FlitChannel *>   _input_channels;
   vector<CreditChannel *> _input_credits;
@@ -251,10 +261,12 @@ public:
   void NewReplacementTrack (int packetId);
   void UpdateReplacementTrack (int packetId, bool cacheHit);
   bool GetReplacementTrack (int packetId);
+  void UpdateTendency(unsigned long addr, unsigned char dir);
+  int GetHorizontalTendency(unsigned long addr);
+  int GetVerticalTendency(unsigned long addr);
   void NewRequestTimeTrack (int packetId, int time);
   void DeleteRequestTimeTrack (int packetId);
   int GetRequestTimeTrack (int packetId);
-
 };
 
 #endif

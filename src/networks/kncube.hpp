@@ -47,7 +47,14 @@ class KNCube : public Network {
   int _LeftNode( int node, int dim );
   int _RightNode( int node, int dim );
 
+  int GetDistance(int src, int dest);
+
 public:
+  const static int NORTH = 0;
+  const static int SOUTH = 1;
+  const static int EAST = 2;
+  const static int WEST = 3;
+
   KNCube( const Configuration &config, const string & name, bool mesh );
   static void RegisterRoutingFunctions();
 
@@ -61,6 +68,13 @@ public:
 
   void InsertRandomFaults( const Configuration &config );
 
+  int GetDirectionOfDest(int src, int dest);
+
+  int GetSetBankInDir(int src, int dir, unsigned long addr);
+
+  int GetSaturated(int src, unsigned long addr);
+
+  bool UpdateTendency(int src, unsigned long addr, int dir);
 };
 
 #endif

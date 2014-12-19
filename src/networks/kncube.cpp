@@ -42,6 +42,8 @@
 #include "misc_utils.hpp"
  //#include "iq_router.hpp"
 
+#define ABS(x) ((x) >= 0 ? (x) : -(x))
+
 KNCube::KNCube( const Configuration &config, const string & name, bool mesh ) :
 Network( config, name )
 {
@@ -486,4 +488,124 @@ void KNCube::InsertRandomFaults( const Configuration &config )
 double KNCube::Capacity( ) const
 {
   return (double)_k / ( _mesh ? 8.0 : 4.0 );
+}
+
+int KNCube::GetDirectionOfDest(int src, int dest) {
+    int src_x = src % _k;
+    int src_y = src / _k;
+    int dest_x = dest % _k;
+    int dest_y = dest / _k;
+    int delta_x = dest_x - src_x;
+    int delta_y = dest_y - src_y;
+
+    // if the x delta is bigger than the y delta,
+    // we consider this biased in the x direction
+    if (ABS(delta_x) >= ABS(delta_y)) {
+
+        // if the delta is positive, it is in the east direction
+        if (delta_x >= 0 ) {
+            return EAST;
+        }
+
+        // the delta is negative, it is in the west direction
+        else {
+            return WEST;
+        }
+    }
+    
+    // y delta bigger than x delta, therefore it is
+    // biased in the y direction
+    else {
+
+        // if the delta is positive, it is in the south direction
+        if (delta_y >= 0 ) {
+            return SOUTH;
+        }
+
+        // the delta is negative, it is in the north direction
+        else {
+            return NORTH;
+        }
+    }
+}
+
+int KNCube::GetDistance(int src, int dest) {
+    int src_x = src % _k;
+    int src_y = src / _k;
+    int dest_x = dest % _k;
+    int dest_y = dest % _k;
+    int delta_x = dest_x - src_x;
+    int delta_y = dest_y - src_y;
+    int distance = ABS(delta_x) + ABS(delta_y);
+
+    return distance;
+}
+
+// NOTE: while we do a linear search here in simulation,
+// a linear search is not viable in hardware. one possible
+// implementation is to implement a per cache bank decoder
+// which, given a direction and set, returns the destination
+// node id. unsure how much logic this would take
+int KNCube::GetSetBankInDir(int src, int dir, unsigned long addr) {
+    assert(NORTH == dir || SOUTH == dir
+        || EAST == dir || WEST == dir);
+
+    int min = 999999; // just some outrageously large number
+    int closestNode = -1;
+
+    // loop through all nodes in the network to find the
+    // closest cache which handles the set in question
+    int set = this->getSet(addr);
+    for (int i = 0; i < _cacheSets[set].size(); i++) {
+        // don't count the source node
+        if (i == src) {
+            continue;
+        }
+
+        int dest = _cacheSets[set][i];
+        if (GetDirectionOfDest(src, dest) == dir &&
+            GetDistance(src, dest) < min) {
+            min = GetDistance(src, dest);
+            closestNode = dest;
+        }
+    }
+
+    return closestNode;
+}
+
+int KNCube::GetSaturated(int src, unsigned long addr) {
+    int hTendency = _routers[src]->GetHorizontalTendency(addr);
+    int vTendency = _routers[src]->GetVerticalTendency(addr);
+
+    if (this->GetSetBankInDir(src, NORTH, addr) != -1 &&
+        vTendency == 0){
+        return NORTH;
+    }
+    else if (this->GetSetBankInDir(src, SOUTH, addr) != -1 &&
+        vTendency == 3) {
+        return SOUTH;
+    }
+    else if (this->GetSetBankInDir(src, EAST, addr) != -1 &&
+        hTendency == 0) {
+        return EAST;
+    }
+    else if (this->GetSetBankInDir(src, WEST, addr) != -1 &&
+        hTendency == 3) {
+        return WEST;
+    }
+
+    return -1;
+}
+
+bool KNCube::UpdateTendency(int src, unsigned long addr, int dir) {
+    if (this->GetSaturated(src, addr) != -1) {
+        return false;
+    }
+
+    this->_routers[src]->UpdateTendency(addr, dir);
+
+    if (this->GetSaturated(src, addr) != -1) {
+        return true;
+    }
+    return false;
 }

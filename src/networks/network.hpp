@@ -119,5 +119,18 @@ public:
   int NumRouters() const {return _size;}
 };
 
+class CycleInfo {
+    public:
+        int accessType;
+        int size;
+        long address;
+
+        CycleInfo(int accessType = 0, int size = 0, long address = 0) {
+            this->accessType = accessType;
+            this->size = size;
+            this->address = address;
+        }
+};
+
 #endif 
 

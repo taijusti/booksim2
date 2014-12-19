@@ -39,7 +39,7 @@
 #include "vc.hpp"
 #include "packet_reply_info.hpp"
 
-#include "Kncube.hpp"
+#include "kncube.hpp"
 
 
 TrafficManager * TrafficManager::New(Configuration const & config,
@@ -714,6 +714,8 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
             // if not a replacement request, just check if line is in the cache bank
             if(f->replacementReq == false)
             {
+                cout << "node" << f->src << " accessed node" << dest << "\n";           
+ 
                 PacketReplyInfo* rinfo = PacketReplyInfo::New();
                 rinfo->source = f->src;
                 rinfo->time = f->atime;
@@ -726,6 +728,32 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
                 _repliesPending[dest].push_back(rinfo);
                 // sort packets in _repliesPending to make sure packets that need to go to main memory doesn't block other packets
                 _repliesPending[dest].sort([](PacketReplyInfo * a, PacketReplyInfo * b){return a->time < b->time;});
+
+                // update saturating counters to determine if
+                // we should migrate the cache line
+                // if an access from a CPU hit, then we need to update the saturating counters
+                if (rinfo->cacheHit && _router[0][f->src]->GetNodeType() == 1) {
+                    unsigned int dir = ((KNCube *)_net[0])->GetDirectionOfDest(dest, f->src);
+                    bool justSaturated = ((KNCube *)_net[0])->UpdateTendency(dest, f->address, dir);
+
+                    if (justSaturated) {
+                        // queue up migration flit.
+                        // TODO: what size should it be
+                        cout << "queuing migration of " << f->address << "from node"
+                             << dest << " saturated in dir " << dir << "\n";
+                        ((AddressTraceTrafficPattern *)_traffic_pattern[0])->sendInfoQueues[dest].push_back(
+                            new CycleInfo(2, 4, f->address));
+                    }
+                }
+
+                // if we got a write request from another cache, its a migration
+                // need to issue our own migration to swap 
+                else if (_router[0][f->src]->GetNodeType() == 0) {
+                   _router[0][dest]->AddCacheLine(f->address, f->atime);
+                   cout << "migration adding "<< f->address << "to node" << dest << "\n";
+                   // TODO: search for LRU, and swap it out
+                }
+
                 cout << "[_RetireFlit] node " << dest << " received a R/W request flit from " << f->src << " . cacheHit=" << rinfo->cacheHit << endl;
             }
             else
@@ -747,39 +775,45 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
                 cout << "[_RetireFlit] node " << dest << " received a reply flit from " << f->src << "... cacheHit=" << f->cacheHit << endl;
                 _requestsOutstanding[dest]--;
 
-                // update status of the request
-                _router[0][dest]->UpdateReplacementTrack(f->reqPid, f->cacheHit);
-                if(f->cacheHit)
-                {
-                    int latency = f->atime - _router[0][dest]->GetRequestTimeTrack(f->reqPid);
-                    averageLatency += (latency - averageLatency) / ++count; //running average of latency
-                    _router[0][dest]->DeleteRequestTimeTrack(f->reqPid);
-                }
-                else
-                {
-                    int setNum = ((KNCube *)_net[0])->getSet(f->address);
-                    if(f->LRUTime < _net[0]->globalLRU[setNum])
-                    {
-                        _net[0]->globalLRU[setNum] = f->LRUTime;
-                        _net[0]->LRUNode[setNum] = f->src;
-                    }
-                }
-                bool receivedAll = _router[0][dest]->ReceivedAllReply(f->reqPid);
-                if(receivedAll)
-                {
-                    cout << "[_RetireFlit] node " << dest << " received all replies... ";
-                    bool replace = _router[0][dest]->GetReplacementTrack(f->reqPid);
-                    if(replace)
-                    {
-                        cout << "got a cache MISS. adding to _replacementPending" << endl;
-                        int type = (f->type == Flit::READ_REPLY)?(1):(2); // 1==read, 2==write (conform to interpretation in _IssuePacket and _GeneratePacket)
-                        _replacementPending[dest].emplace(f->address, type);
-                        cout << "_replacementPending[" << dest << "]=<" << f->address << ", " << type << ">" << endl;
-                        cout << "_replacementPending[" << dest << "]=<" << _replacementPending[dest].begin()->first << ", " << _replacementPending[dest].begin()->second << ">" << endl;
-                    }
-                    else
-                        cout << "cacheHit=" << f->cacheHit << endl;
-                }
+				if (_router[0][dest]->GetNodeType() == 0) { // if it is a cache
+                    cout << "migration removing cachline " << f->address << " from node" << dest << "\n";
+                    _router[0][dest]->RemoveCacheLine(f->address);
+				}
+				else { // its not a cache node, it must be a CPU node
+		            // update status of the request
+		            _router[0][dest]->UpdateReplacementTrack(f->reqPid, f->cacheHit);
+		            if(f->cacheHit)
+		            {
+		                int latency = f->atime - _router[0][dest]->GetRequestTimeTrack(f->reqPid);
+		                averageLatency += (latency - averageLatency) / ++count; //running average of latency
+		                _router[0][dest]->DeleteRequestTimeTrack(f->reqPid);
+		            }
+		            else
+		            {
+		                int setNum = ((KNCube *)_net[0])->getSet(f->address);
+		                if(f->LRUTime < _net[0]->globalLRU[setNum])
+		                {
+		                    _net[0]->globalLRU[setNum] = f->LRUTime;
+		                    _net[0]->LRUNode[setNum] = f->src;
+		                }
+		            }
+		            bool receivedAll = _router[0][dest]->ReceivedAllReply(f->reqPid);
+		            if(receivedAll)
+		            {
+		                cout << "[_RetireFlit] node " << dest << " received all replies... ";
+		                bool replace = _router[0][dest]->GetReplacementTrack(f->reqPid);
+		                if(replace)
+		                {
+		                    cout << "got a cache MISS. adding to _replacementPending" << endl;
+		                    int type = (f->type == Flit::READ_REPLY)?(1):(2); // 1==read, 2==write (conform to interpretation in _IssuePacket and _GeneratePacket)
+		                    _replacementPending[dest].emplace(f->address, type);
+		                    cout << "_replacementPending[" << dest << "]=<" << f->address << ", " << type << ">" << endl;
+		                    cout << "_replacementPending[" << dest << "]=<" << _replacementPending[dest].begin()->first << ", " << _replacementPending[dest].begin()->second << ">" << endl;
+		                }
+		                else
+		                    cout << "cacheHit=" << f->cacheHit << endl;
+		            }
+				}
 
             } else if(f->type == Flit::ANY_TYPE) {
                 _requestsOutstanding[f->src]--;
@@ -957,7 +991,9 @@ void TrafficManager::_GeneratePacket( int source, int stype,
                 {
                     address = ((AddressTraceTrafficPattern *)_traffic_pattern[cl])->GetAddr(source);
                     cout << "[_GeneratePacket] getting new R/W request for address=0x" << std::hex << address << std::dec << endl;
-                    if(address != 0)
+
+                    // its a processor node, generate a packet to service the cache access
+                    if(address != 0 && _router[0][source]->GetNodeType() == 1)
                     {
                         ((AddressTraceTrafficPattern *)_traffic_pattern[cl])->sendInfoQueues[source].pop_front(); // for now don't worry about size and type
                         setNum = ((KNCube *)_net[0])->getSet(address);
@@ -967,6 +1003,22 @@ void TrafficManager::_GeneratePacket( int source, int stype,
                         _router[0][source]->NewRequestTimeTrack(pid, time);
                         replacementReq = false;
                         cout << "[_GeneratePacket] mcast request to ";
+                    }
+
+                    // check if this is a cache node, and if it is, interpret the address as the cache line
+                    // that is to be migrated 
+                    else if (address != 0 && _router[0][source]->GetNodeType() == 0) {
+                        ((AddressTraceTrafficPattern *)_traffic_pattern[cl])->sendInfoQueues[source].pop_front(); // for now don't worry about size and type
+
+                        // 1) figure out which direction to send it
+                        int dir = ((KNCube *)_net[0])->GetSaturated(source, address);
+
+                        // 2) figure out which node to send it
+                        packet_destination = ((KNCube *)_net[0])->GetSetBankInDir(source, dir, address);
+
+                        cout << "migrating " << address << " from "
+                             << source << " to " << packet_destination
+                             << " direction " << dir << "\n";
                     }
                 }
             }

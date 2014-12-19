@@ -183,19 +183,6 @@ class AddressTraceTrafficPattern : public TrafficPattern {
 private:
 
   // internal classes
-  class CycleInfo {
-    public:
-      int accessType;
-      int size;
-      long address;
-
-      CycleInfo(int accessType = 0, int size = 0, long address = 0) {
-        this->accessType = accessType;
-        this->size = size;
-        this->address = address;
-      }
-  };
-
   class Flit {
     public:
       int accessType;
@@ -211,11 +198,17 @@ private:
   // when needed, rather than loading everything into memory
   ifstream addressTraceFile;    
   int curCycle;
-  map<int, CycleInfo *> cycleInfo; // tracks which memory accesses are happening in curCycle
-  map<int, list<Flit *> > sendQueues; // a queue of flits we need to send out. useful for multicasting /smart NUCA query
+  // tracks which memory accesses are happening in curCycle
+  map<int, CycleInfo *> cycleInfo; 
+  // a queue of flits we need to send out. useful for multicasting /smart NUCA query
+  map<int, list<Flit *> > sendQueues; 
+
+  void cpuDest();
+  void routerDest();
 
 public:
-  map<int, list<CycleInfo *> > sendInfoQueues; // this queues the info from addr trace (only one copy, the multicast logic will be in _GeneratePacket function
+  // this queues the info from addr trace (only one copy, the multicast logic will be in _GeneratePacket function
+  map<int, list<CycleInfo *> > sendInfoQueues;
   AddressTraceTrafficPattern(int nodes, string  & fileName, Network * net);
   ~AddressTraceTrafficPattern();
   virtual int dest(int source);
