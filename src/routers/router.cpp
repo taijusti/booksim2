@@ -185,6 +185,25 @@ long Router::FindLRU() {
     return addr;
 }
 
+int Router::FindLRUTime() {
+    if(cache_lines.empty())
+    {
+        return -1;
+    }
+    long addr = cache_lines.begin()->first;
+    int time = cache_lines.begin()->second;
+    for (std::map<long,int>::iterator it=cache_lines.begin(); it!=cache_lines.end(); ++it)
+    {
+        if(it->second < time)
+        {
+            addr = it->first;
+            time = it->second;
+        }
+    }
+    return time;
+}
+
+
 long Router::GetAlignedAddress(long addr)
 {
     long alignedAddr = addr/CACHE_LINE_SIZE * CACHE_LINE_SIZE;
@@ -269,4 +288,17 @@ bool Router::GetReplacementTrack (int packetId) {
     cout << " (replace=" << replace << ") " << endl;
     return replace;
 }
+
+void Router::NewRequestTimeTrack (int packetId, int time) {
+    requestTime.insert(make_pair(packetId, time));
+}
+
+void Router::DeleteRequestTimeTrack (int packetId) {
+    requestTime.erase(packetId);
+}
+
+int Router::GetRequestTimeTrack (int packetId) {
+    return requestTime[packetId];
+}
+
 

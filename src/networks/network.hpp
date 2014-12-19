@@ -75,6 +75,8 @@ public:
     
   vector< vector<int> > _cacheSets; // each element is the actual nodeID
   map<int, int>procToNodeMap; // <processorID, nodeID>
+  vector<int> globalLRU;
+  vector<int> LRUNode;
   Network( const Configuration &config, const string & name );
   virtual ~Network( );
 

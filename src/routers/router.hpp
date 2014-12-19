@@ -85,6 +85,9 @@ protected:
   map<int, int> replyCounts;
   // tracks which R/W requests need to issue replacement request (pid, requestReplacement?)
   map<int, bool> replacementRequest;
+  // tracks R/W request time <pid, time>
+  map<int, int> requestTime;
+
   // ================================================================
   
   // which addresses this cache bank should handle
@@ -232,6 +235,7 @@ public:
 
   bool FindCacheLine(long address);
   long FindLRU();
+  int FindLRUTime();
   long GetAlignedAddress(long addr);
   void AddCacheLine(long address, int time);
   void RemoveCacheLine(long address);
@@ -247,7 +251,10 @@ public:
   void NewReplacementTrack (int packetId);
   void UpdateReplacementTrack (int packetId, bool cacheHit);
   bool GetReplacementTrack (int packetId);
-  
+  void NewRequestTimeTrack (int packetId, int time);
+  void DeleteRequestTimeTrack (int packetId);
+  int GetRequestTimeTrack (int packetId);
+
 };
 
 #endif

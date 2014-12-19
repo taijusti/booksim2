@@ -290,6 +290,8 @@ TrafficManager::TrafficManager( const Configuration &config, const vector<Networ
     _delayedRepliesPending.resize(_nodes);
     _replacementPending.resize(_nodes);
     _requestsOutstanding.resize(_nodes);
+    averageLatency = 0;
+    count = 0;
 
     _hold_switch_for_packet = config.GetInt("hold_switch_for_packet");
 
@@ -712,7 +714,6 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
             // if not a replacement request, just check if line is in the cache bank
             if(f->replacementReq == false)
             {
-            
                 PacketReplyInfo* rinfo = PacketReplyInfo::New();
                 rinfo->source = f->src;
                 rinfo->time = f->atime;
@@ -732,7 +733,7 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
             cout << "[_RetireFlit] node " << dest << " received a replacement request flit from " << f->src << endl;
                 PacketReplyInfo* rinfo = PacketReplyInfo::New();
                 rinfo->source = f->src;
-                rinfo->time = f->atime + 10; // assume accessing main memory takes 100 cycles
+                rinfo->time = f->atime + 100; // assume accessing main memory takes 100 cycles
                 rinfo->record = f->record;
                 rinfo->type = f->type;
                 // determine if cache hit or not
@@ -748,6 +749,21 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
 
                 // update status of the request
                 _router[0][dest]->UpdateReplacementTrack(f->reqPid, f->cacheHit);
+                if(f->cacheHit)
+                {
+                    int latency = f->atime - _router[0][dest]->GetRequestTimeTrack(f->reqPid);
+                    averageLatency += (latency - averageLatency) / ++count; //running average of latency
+                    _router[0][dest]->DeleteRequestTimeTrack(f->reqPid);
+                }
+                else
+                {
+                    int setNum = ((KNCube *)_net[0])->getSet(f->address);
+                    if(f->LRUTime < _net[0]->globalLRU[setNum])
+                    {
+                        _net[0]->globalLRU[setNum] = f->LRUTime;
+                        _net[0]->LRUNode[setNum] = f->src;
+                    }
+                }
                 bool receivedAll = _router[0][dest]->ReceivedAllReply(f->reqPid);
                 if(receivedAll)
                 {
@@ -919,6 +935,7 @@ void TrafficManager::_GeneratePacket( int source, int stype,
     bool cacheHit       = false;
     bool replacementReq = false;
     int reqPid = pid;
+    int LRUTime = time;
 
     // figure out what kind of packet it is going to be
     if(_use_read_write[cl]){
@@ -931,7 +948,7 @@ void TrafficManager::_GeneratePacket( int source, int stype,
                 {
                     address = _replacementPending[source].begin()->first;
                     setNum = ((KNCube *)_net[0])->getSet(address);
-                    packet_destination = _net[0]->_cacheSets[setNum][0]; // TODO: figure out which cache bank to designate for replacement
+                    packet_destination = _net[0]->LRUNode[setNum]; // TODO: figure out which cache bank to designate for replacement... use global LRU for now
                     cout << "[_GeneratePacket] R/W type is " << stype << ". replacement: address=0x" << std::hex << address << std::dec << " set=" << setNum << " destination node=";
                     replacementReq = true;
                     _replacementPending[source].erase(address);
@@ -947,6 +964,7 @@ void TrafficManager::_GeneratePacket( int source, int stype,
                         mcast_destination = _net[0]->_cacheSets[setNum];
                         _router[0][source]->NewReplyTrack(pid, mcast_destination.size());
                         _router[0][source]->NewReplacementTrack(pid);
+                        _router[0][source]->NewRequestTimeTrack(pid, time);
                         replacementReq = false;
                         cout << "[_GeneratePacket] mcast request to ";
                     }
@@ -978,6 +996,8 @@ void TrafficManager::_GeneratePacket( int source, int stype,
             if(stype == -1) // normal reply
             {
                 rinfo = _repliesPending[source].front();
+                LRUTime = _router[0][source]->FindLRUTime();
+                if (-1 == LRUTime) LRUTime = time;
             }
             else // stype==-2 this is a replacement reply
             {
@@ -1071,6 +1091,7 @@ void TrafficManager::_GeneratePacket( int source, int stype,
             f->replacementReq = replacementReq;
             f->address = address;
             f->reqPid = reqPid;
+            f->LRUTime = LRUTime; //this is only valid in a "REPLY" packet
 
             _total_in_flight_flits[f->cl].insert(make_pair(f->id, f));
             if(record) {
@@ -1883,7 +1904,7 @@ bool TrafficManager::Run( )
 
         if ( !_SingleSim( ) ) {
             cout << "Simulation unstable, ending ..." << endl;
-            return false;
+            //return false;
         }
 
         // Empty any remaining packets
@@ -1930,7 +1951,8 @@ bool TrafficManager::Run( )
     if(_print_csv_results) {
         DisplayOverallStatsCSV();
     }
-  
+
+    cout << "Average Latency = " << averageLatency << " cycles" << endl;
     return true;
 }
 

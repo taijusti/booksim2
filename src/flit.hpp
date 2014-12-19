@@ -88,6 +88,7 @@ public:
   bool replacementReq;
   long address;
   int  reqPid;
+  int LRUTime;
 
   void Reset();
 

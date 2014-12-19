@@ -131,6 +131,15 @@ void KNCube::_AssignCacheSet( const Configuration &config )
       delete(cstr);
       getline(set_map_file, line);
     }
+
+    globalLRU.resize(_cacheSets.size());
+    LRUNode.resize(_cacheSets.size());
+    for(int i = 0; i < _cacheSets.size(); i++)
+    {
+        globalLRU[i] = 0;
+        LRUNode[i] = _cacheSets[i][0];
+    }
+      
   }
 
   cout << "==============================================" << endl;

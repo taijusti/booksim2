@@ -619,7 +619,7 @@ void AddressTraceTrafficPattern::LoadCycleData(int cycle) {
       parseSource = atoi(strtok(NULL, " ")); 
       assert(!_net->procToNodeMap.empty());
       int source = _net->procToNodeMap[parseSource]; // convert processor ID to node ID
-      parseSize = atoi(strtok(NULL, " "));
+      //parseSize = atoi(strtok(NULL, " "));
       //parseAddress = atol(strtok(NULL, " "));
       parseAddress = strtol((strtok(NULL, " ")), NULL, 16);
       long address = _net->GetRouter(source)->GetAlignedAddress(parseAddress);
