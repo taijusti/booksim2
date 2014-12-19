@@ -94,7 +94,7 @@ int KNCube::getSet( long addr )
 {
     int numSets = _cacheSets.size();
     int set = addr % numSets;
-    cout << "getSet: " << addr << " = set " << set << endl;
+    //cout << "getSet: " << addr << " = set " << set << endl;
     return set;
 }
 

@@ -338,6 +338,7 @@ void Router::UpdateTendency(unsigned long addr, unsigned char dir) {
 
 void Router::NewRequestTimeTrack (int packetId, int time) {
     requestTime.insert(make_pair(packetId, time));
+    cout << "NewRequestTimeTrack added pid=" <<packetId << " time =" << requestTime[packetId] << endl;
 }
 
 void Router::DeleteRequestTimeTrack (int packetId) {
@@ -345,5 +346,10 @@ void Router::DeleteRequestTimeTrack (int packetId) {
 }
 
 int Router::GetRequestTimeTrack (int packetId) {
+    if(0 == requestTime.count(packetId))
+        return -1;
+    cout << "found " << requestTime.count(packetId) << " elements for pid=" << packetId << " with value " << requestTime[packetId] << endl;
     return requestTime[packetId];
 }
+
+

@@ -141,8 +141,11 @@ protected:
   vector<list<PacketReplyInfo*> > _repliesPending;
   vector<list<PacketReplyInfo*> > _delayedRepliesPending;
   vector<map<long, int>  > _replacementPending; // used by processor to figure out if it needs to issue a replacement request <address, R/W>
+  vector<map<long, int>  > _replacementPendingPid; //hack for accounting cycle time
   vector<int> _requestsOutstanding;
   long averageLatency;
+  long maxLatency;
+  long minLatency;
   long count;
 
   // ============ Statistics ============

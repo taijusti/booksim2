@@ -289,8 +289,11 @@ TrafficManager::TrafficManager( const Configuration &config, const vector<Networ
     _repliesPending.resize(_nodes);
     _delayedRepliesPending.resize(_nodes);
     _replacementPending.resize(_nodes);
+    _replacementPendingPid.resize(_nodes);
     _requestsOutstanding.resize(_nodes);
     averageLatency = 0;
+    maxLatency = 0;
+    minLatency = 9999;
     count = 0;
 
     _hold_switch_for_packet = config.GetInt("hold_switch_for_packet");
@@ -784,9 +787,17 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
 		            _router[0][dest]->UpdateReplacementTrack(f->reqPid, f->cacheHit);
 		            if(f->cacheHit)
 		            {
-		                int latency = f->atime - _router[0][dest]->GetRequestTimeTrack(f->reqPid);
-		                averageLatency += (latency - averageLatency) / ++count; //running average of latency
-		                _router[0][dest]->DeleteRequestTimeTrack(f->reqPid);
+                    int reqTime = _router[0][dest]->GetRequestTimeTrack(f->reqPid);
+                    if(-1 != reqTime)
+                    {
+		                    int latency = f->atime - _router[0][dest]->GetRequestTimeTrack(f->reqPid);
+                        cout << "getting time for pid= " << f->reqPid << endl;
+                        if(latency <minLatency) minLatency = latency;
+                        if(latency > maxLatency) maxLatency = latency;
+		                    averageLatency += (latency - averageLatency) / ++count; //running average of latency
+                        cout << "Latency = " << f->atime << "-" << _router[0][dest]->GetRequestTimeTrack(f->reqPid) << "=" <<latency << " Average Latency = " << averageLatency << endl;
+		                    _router[0][dest]->DeleteRequestTimeTrack(f->reqPid);
+                    }
 		            }
 		            else
 		            {
@@ -807,6 +818,7 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
 		                    cout << "got a cache MISS. adding to _replacementPending" << endl;
 		                    int type = (f->type == Flit::READ_REPLY)?(1):(2); // 1==read, 2==write (conform to interpretation in _IssuePacket and _GeneratePacket)
 		                    _replacementPending[dest].emplace(f->address, type);
+                            _replacementPendingPid[dest].emplace(f->address, f->reqPid);
 		                    cout << "_replacementPending[" << dest << "]=<" << f->address << ", " << type << ">" << endl;
 		                    cout << "_replacementPending[" << dest << "]=<" << _replacementPending[dest].begin()->first << ", " << _replacementPending[dest].begin()->second << ">" << endl;
 		                }
@@ -986,6 +998,8 @@ void TrafficManager::_GeneratePacket( int source, int stype,
                     cout << "[_GeneratePacket] R/W type is " << stype << ". replacement: address=0x" << std::hex << address << std::dec << " set=" << setNum << " destination node=";
                     replacementReq = true;
                     _replacementPending[source].erase(address);
+                    reqPid = _replacementPendingPid[source][address];
+                    _replacementPendingPid[source].erase(address);
                 }
                 else
                 {
@@ -1931,6 +1945,7 @@ bool TrafficManager::Run( )
             }
             if(!_replacementPending[i].empty()) {
                 _replacementPending[i].clear();
+                _replacementPendingPid[i].clear();
             }
 
         }
@@ -2005,6 +2020,8 @@ bool TrafficManager::Run( )
     }
 
     cout << "Average Latency = " << averageLatency << " cycles" << endl;
+    cout << "Max Latency = " << maxLatency << " cycles" << endl;
+    cout << "Min Latency = " << minLatency << " cycles" << endl;
     return true;
 }
 

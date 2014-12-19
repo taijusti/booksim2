@@ -636,7 +636,7 @@ void AddressTraceTrafficPattern::LoadCycleData(int cycle) {
       //prevCycle = parseCycle;
       AddCycleInfo(accessType, source, parseSize, address);
       sendInfoQueues[source].push_back(new CycleInfo(cycleInfo[source]->accessType, cycleInfo[source]->size, cycleInfo[source]->address));
-      cout << "[LoadCycleData] Read in accessType: " << accessType << " source: " << source << " size: " << parseSize << " Address: 0x" << std::hex << address << std::dec << endl;
+      //cout << "[LoadCycleData] Read in accessType: " << accessType << " source: " << source << " size: " << parseSize << " Address: 0x" << std::hex << address << std::dec << endl;
     } 
     addressTraceFile.seekg(filePos); //rewind the last getline
 
